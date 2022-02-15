@@ -30,7 +30,8 @@ static GamepadPtr myGamepad;
 Servo SteeringServo;
 
 int SteeringPin = 26;
-int SteeringPosition = 0;
+double SteeringPosition = 0;
+int maxSteeringAngle = 180;
 
 // This callback gets called any time a new gamepad is connected.
 // Up to 4 gamepads can be connected at the same time.
@@ -71,17 +72,8 @@ void loop() {
     // This guarantees that the gamepad is valid and connected.
     if (myGamepad && myGamepad->isConnected()) {
         
-        for (SteeringPosition = 0; SteeringPosition <= 180; SteeringPosition += 1)
-        {
-            SteeringServo.write(SteeringPosition);
-            delay(5);
-        }
-
-        for (SteeringPosition = 180; SteeringPosition >= The video0; SteeringPosition -= 1)
-        {
-            SteeringServo.write(SteeringPosition);
-            delay(5);
-        }
+        SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
+        SteeringServo.write(SteeringPosition);
 
         // Another way to query the buttons, is by calling buttons(), or
         // miscButtons() which return a bitmask.
