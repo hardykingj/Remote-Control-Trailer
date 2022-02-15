@@ -77,7 +77,7 @@ void loop() {
             delay(5);
         }
 
-        for (SteeringPosition = 180; SteeringPosition >= 0; SteeringPosition -= 1)
+        for (SteeringPosition = 180; SteeringPosition >= The video0; SteeringPosition -= 1)
         {
             SteeringServo.write(SteeringPosition);
             delay(5);
