@@ -212,6 +212,11 @@ void testFileIO(fs::FS &fs, const char * path){
 // Arduino setup function. Runs in CPU 1
 void setup() {
 
+    pinMode(SS, INPUT_PULLDOWN);
+    pinMode(MOSI, INPUT_PULLDOWN);
+    pinMode(MISO, INPUT_PULLDOWN);
+    pinMode(SCK, INPUT_PULLDOWN);
+
     // BluePad32 Setup Information
     Serial.begin(115200);
 
@@ -251,20 +256,20 @@ void setup() {
     Serial.printf("SD Card Size: %lluMB\n", cardSize);
 
     // Testing the function of the SD card code *DELETE AFTER TEST*
-    listDir(SD, "/", 0);
-    createDir(SD, "/mydir");
-    listDir(SD, "/", 0);
-    removeDir(SD, "/mydir");
-    listDir(SD, "/", 2);
-    writeFile(SD, "/hello.txt", "Hello ");
-    appendFile(SD, "/hello.txt", "World!\n");
-    readFile(SD, "/hello.txt");
-    deleteFile(SD, "/foo.txt");
-    renameFile(SD, "/hello.txt", "/foo.txt");
-    readFile(SD, "/foo.txt");
-    testFileIO(SD, "/test.txt");
-    Serial.printf("Total space: %lluMB\n", SD.totalBytes() / (1024 * 1024));
-    Serial.printf("Used space: %lluMB\n", SD.usedBytes() / (1024 * 1024));
+    // listDir(SD, "/", 0);
+    // createDir(SD, "/mydir");
+    // listDir(SD, "/", 0);
+    // removeDir(SD, "/mydir");
+    // listDir(SD, "/", 2);
+    // writeFile(SD, "/hello.txt", "Hello ");
+    // appendFile(SD, "/hello.txt", "World!\n");
+    // readFile(SD, "/hello.txt");
+    // deleteFile(SD, "/foo.txt");
+    // renameFile(SD, "/hello.txt", "/foo.txt");
+    // readFile(SD, "/foo.txt");
+    // testFileIO(SD, "/test.txt");
+    // Serial.printf("Total space: %lluMB\n", SD.totalBytes() / (1024 * 1024));
+    // Serial.printf("Used space: %lluMB\n", SD.usedBytes() / (1024 * 1024));
 
     // Servo Motor Setup Information
     SteeringServo.attach(SteeringPin);
