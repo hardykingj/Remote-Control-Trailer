@@ -1,4 +1,4 @@
-/*
+    /*
  * Connect the SD card to the following pins:
  *
  * SD Card | ESP32
