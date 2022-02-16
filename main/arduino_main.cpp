@@ -23,27 +23,35 @@ limitations under the License.
 
 #include <Arduino.h>
 #include <Bluepad32.h>
-//#include <ESP32_Servo.h>
 #include "..\components\ESP32Servo-master\src\ESP32_Servo.h"
 
 static GamepadPtr myGamepad;
 Servo SteeringServo;
 
+// Setting constants for the board and configuring the model
 int SteeringPin = 26;
 double SteeringPosition = 0;
+
 int maxSteeringAngle = 180;
+
+int OnPin = 13;
+int ConnectedPin = 27;
 
 // This callback gets called any time a new gamepad is connected.
 // Up to 4 gamepads can be connected at the same time.
 void onConnectedGamepad(GamepadPtr gp) {
-    // In this example we only use one gamepad at the same time.
+
     myGamepad = gp;
     Serial.println("CALLBACK: Gamepad is connected!");
+
+    digitalWrite(ConnectedPin, HIGH);                               // Turing on LED once Gamepad is connected
 }
 
 void onDisconnectedGamepad(GamepadPtr gp) {
     Serial.println("CALLBACK: Gamepad is disconnected!");
     myGamepad = nullptr;
+
+    digitalWrite(ConnectedPin, LOW);                                // Turning off LED once Gamepad is connected
 }
 
 // Arduino setup function. Runs in CPU 1
@@ -58,6 +66,11 @@ void setup() {
     BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
 
     SteeringServo.attach(SteeringPin);
+
+    pinMode(OnPin, OUTPUT);
+    digitalWrite(OnPin, HIGH);                                      // Turning on LED once Setup is complete
+
+    pinMode(ConnectedPin, OUTPUT);                                  // Setting up ConnectedPin state
 }
 
 // Arduino loop function. Runs in CPU 1
