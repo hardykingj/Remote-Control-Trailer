@@ -23,20 +23,35 @@ limitations under the License.
 
 #include <Arduino.h>
 #include <Bluepad32.h>
+#include "..\components\ESP32Servo-master\src\ESP32_Servo.h"
 
 static GamepadPtr myGamepad;
+Servo SteeringServo;
+
+// Setting constants for the board and configuring the model
+int SteeringPin = 26;
+double SteeringPosition = 0;
+
+int maxSteeringAngle = 180;
+
+int OnPin = 13;
+int ConnectedPin = 27;
 
 // This callback gets called any time a new gamepad is connected.
 // Up to 4 gamepads can be connected at the same time.
 void onConnectedGamepad(GamepadPtr gp) {
-    // In this example we only use one gamepad at the same time.
+
     myGamepad = gp;
     Serial.println("CALLBACK: Gamepad is connected!");
+
+    digitalWrite(ConnectedPin, HIGH);                               // Turing on LED once Gamepad is connected
 }
 
 void onDisconnectedGamepad(GamepadPtr gp) {
     Serial.println("CALLBACK: Gamepad is disconnected!");
     myGamepad = nullptr;
+
+    digitalWrite(ConnectedPin, LOW);                                // Turning off LED once Gamepad is connected
 }
 
 // Arduino setup function. Runs in CPU 1
@@ -49,6 +64,13 @@ void setup() {
 
     // Setup the Bluepad32 callbacks
     BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
+
+    SteeringServo.attach(SteeringPin);
+
+    pinMode(OnPin, OUTPUT);
+    digitalWrite(OnPin, HIGH);                                      // Turning on LED once Setup is complete
+
+    pinMode(ConnectedPin, OUTPUT);                                  // Setting up ConnectedPin state
 }
 
 // Arduino loop function. Runs in CPU 1
@@ -62,49 +84,9 @@ void loop() {
     // It is safe to always do this before using the gamepad API.
     // This guarantees that the gamepad is valid and connected.
     if (myGamepad && myGamepad->isConnected()) {
-        // There are different ways to query whether a button is pressed.
-        // By query each button individually:
-        //  a(), b(), x(), y(), l1(), etc...
-        if (myGamepad->a()) {
-            static int colorIdx = 0;
-            // Some gamepads like DS4 and DualSense support changing the color LED.
-            // It is possible to change it by calling:
-            switch (colorIdx % 3) {
-                case 0:
-                    // Red
-                    myGamepad->setColorLED(255, 0, 0);
-                    break;
-                case 1:
-                    // Green
-                    myGamepad->setColorLED(0, 255, 0);
-                    break;
-                case 2:
-                    // Blue
-                    myGamepad->setColorLED(0, 0, 255);
-                    break;
-            }
-            colorIdx++;
-        }
-
-        if (myGamepad->b()) {
-            // Turn on the 4 LED. Each bit represents one LED.
-            static int led = 0;
-            led++;
-            // Some gamepads like the DS3, DualSense, Nintendo Wii, Nintendo Switch
-            // support changing the "Player LEDs": those 4 LEDs that usually indicate
-            // the "gamepad seat".
-            // It is possible to change them by calling:
-            myGamepad->setPlayerLEDs(led & 0x0f);
-        }
-
-        if (myGamepad->x()) {
-            // Duration: 255 is ~2 seconds
-            // force: intensity
-            // Some gamepads like DS3, DS4, DualSense, Switch, Xbox One S support
-            // rumble.
-            // It is possible to set it by calling:
-            myGamepad->setRumble(0xc0 /* force */, 0xc0 /* duration */);
-        }
+        
+        SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
+        SteeringServo.write(SteeringPosition);
 
         // Another way to query the buttons, is by calling buttons(), or
         // miscButtons() which return a bitmask.
