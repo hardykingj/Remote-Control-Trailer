@@ -5,12 +5,14 @@
 #endif // !CONFIG_BLUEPAD32_PLATFORM_ARDUINO
 
 // Libraries
-#include <Arduino.h>
-#include <Bluepad32.h>
-#include "..\components\ESP32Servo-master\src\ESP32_Servo.h"
-#include "FS.h"
-#include "SD.h"
-#include "SPI.h"
+#include <Arduino.h>                                                // General Arduino Library
+#include <Bluepad32.h>                                              // Library for Bluepad32
+#include "..\components\ESP32Servo-master\src\ESP32_Servo.h"        // Library for Servo Motor
+#include "FS.h"                                                     // Library for SD Card
+#include "SD.h"                                                     // Library for SD Card
+#include "SPI.h"                                                    // Library for SD Card
+#include <WiFi.h>                                                   // Library for Wifi
+#include "time.h"                                                   // Library for Time
 
 // Defining Classes
 static GamepadPtr myGamepad;
@@ -24,6 +26,50 @@ int ConnectedPin = 27;
 // Model Constants
 double SteeringPosition = 0;
 int maxSteeringAngle = 180;
+
+// Code Constants
+long referencemills = 0;
+String FileName = "CarLog.csv";
+String DataLog;
+const char* DataLogchar;
+
+// Defined network credentials (Using Jacob's iPhone)
+const char* ssid     = "iPhone";
+const char* password = "12345678";
+
+// Timer variables
+unsigned long lastTime = 0;
+unsigned long timerDelay = 3;
+
+// NTP server to request epoch time
+const char* ntpServer = "pool.ntp.org";
+
+// Variable to save current epoch time
+unsigned long epochTime; 
+
+// Function that gets current epoch time
+unsigned long getTime() {
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    //Serial.println("Failed to obtain time");
+    return(0);
+  }
+  time(&now);
+  return now;
+}
+
+// Initialize WiFi
+void initWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi ..");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print('.');
+    delay(1000);
+  }
+  Serial.println(WiFi.localIP());
+}
 
 // Callback gets called any time a new gamepad is connect (upto 4 can be connected at anytime)
 void onConnectedGamepad(GamepadPtr gp) {
@@ -43,6 +89,35 @@ void onDisconnectedGamepad(GamepadPtr gp) {
 }
 
 // Functions required to enable SD card integration
+// Setup SD Card
+void initSDCard(){
+    if(!SD.begin(SS)){
+        Serial.println("Card Mount Failed");
+        return;
+    }
+    uint8_t cardType = SD.cardType();
+
+    if(cardType == CARD_NONE){
+        Serial.println("No SD card attached");
+        return;
+    }
+
+    // Print SD card type on Serial Monitor
+    Serial.print("SD Card Type: ");
+    if(cardType == CARD_MMC){
+        Serial.println("MMC");
+    } else if(cardType == CARD_SD){
+        Serial.println("SDSC");
+    } else if(cardType == CARD_SDHC){
+        Serial.println("SDHC");
+    } else {
+        Serial.println("UNKNOWN");
+    }
+
+    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+    Serial.printf("SD Card Size: %lluMB\n", cardSize);
+}
+
 // Listing of directories on SD card
 void listDir(fs::FS &fs, const char * dirname, uint8_t levels){
     Serial.printf("Listing directory: %s\n", dirname);
@@ -217,6 +292,10 @@ void setup() {
     pinMode(MISO, INPUT_PULLDOWN);
     pinMode(SCK, INPUT_PULLDOWN);
 
+    initWiFi();
+    initSDCard();
+    configTime(0, 0, ntpServer);
+
     // BluePad32 Setup Information
     Serial.begin(115200);
 
@@ -227,33 +306,10 @@ void setup() {
     // Setup the Bluepad32 callbacks
     BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
 
-    // SD Card Setup Information
-    Serial.begin(115200);
-    if(!SD.begin(SS)){
-        Serial.println("Card Mount Failed");
-        return;
-    }
-    uint8_t cardType = SD.cardType();
-
-    if(cardType == CARD_NONE){
-        Serial.println("No SD card attached");
-        return;
-    }
-    
-    // Print SD card type on Serial Monitor
-    Serial.print("SD Card Type: ");
-    if(cardType == CARD_MMC){
-        Serial.println("MMC");
-    } else if(cardType == CARD_SD){
-        Serial.println("SDSC");
-    } else if(cardType == CARD_SDHC){
-        Serial.println("SDHC");
-    } else {
-        Serial.println("UNKNOWN");
-    }
-
-    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-    Serial.printf("SD Card Size: %lluMB\n", cardSize);
+    // Create log file
+    listDir(SD, "/", 0);
+    createDir(SD, "/DataLog");
+    writeFile(SD, ("/DataLog/CarLog.csv"), "Time (millis),Steering Angle");
 
     // Testing the function of the SD card code *DELETE AFTER TEST*
     // listDir(SD, "/", 0);
@@ -283,6 +339,7 @@ void setup() {
 
 // Arduino loop function. Runs in CPU 1
 void loop() {
+
     // This call fetches all the gamepad info from the NINA (ESP32) module.
     // Just call this function in your main loop.
     // The gamepads pointer (the ones received in the callbacks) gets updated
@@ -315,11 +372,18 @@ void loop() {
                  myGamepad->throttle(),    // (0 - 1023): throttle (AKA gas) button
                  myGamepad->miscButtons()  // bitmak of pressed "misc" buttons
         );
-        Serial.println(buffer);
-
-        // You can query the axis and other properties as well. See Gamepad.h
-        // For all the available functions.
+        //Serial.println(buffer);
     }
 
-    delay(150);
+    if ((millis() - lastTime) > timerDelay) {
+        //Get epoch time
+        epochTime = getTime();
+   
+        // Data log the loop
+        DataLog = "\n" + String(epochTime) + "," + String(SteeringPosition);
+        DataLogchar = DataLog.c_str();
+        appendFile(SD, "/DataLog/CarLog.csv", DataLog.c_str());
+
+        lastTime = millis();
+    }
 }
