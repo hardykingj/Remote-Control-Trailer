@@ -25,7 +25,7 @@ int ConnectedPin = 27;
 int RecordingPin = 15;
 int DCDirectionPin = 25;
 int DCMotorPin = 12;
-int DCSignalPin = 39;
+int DCSignalPin = 34;
 
 // Model Constants
 double SteeringPosition = 0;
@@ -39,10 +39,6 @@ const char* DataLogchar;
 boolean Recording;
 double RotVelocity;
 double AxisY;
-
-// MOTOR STUFF DELETE ONCE CONFIGURED
-int i = 0;
-bool flag = HIGH;
 
 // Defined network credentials (Using Jacob's iPhone)
 const char* ssid     = "iPhone";
