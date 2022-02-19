@@ -22,6 +22,7 @@ Servo SteeringServo;
 int SteeringPin = 26;
 int OnPin = 33;
 int ConnectedPin = 27;
+int RecordingPin = 15;
 
 // Model Constants
 double SteeringPosition = 0;
@@ -32,6 +33,7 @@ long referencemills = 0;
 String FileName = "CarLog.csv";
 String DataLog;
 const char* DataLogchar;
+boolean Recording;
 
 // Defined network credentials (Using Jacob's iPhone)
 const char* ssid     = "iPhone";
@@ -39,7 +41,7 @@ const char* password = "12345678";
 
 // Timer variables
 unsigned long lastTime = 0;
-unsigned long timerDelay = 3;
+unsigned long timerDelay = 100;
 
 // NTP server to request epoch time
 const char* ntpServer = "pool.ntp.org";
@@ -309,7 +311,7 @@ void setup() {
     // Create log file
     listDir(SD, "/", 0);
     createDir(SD, "/DataLog");
-    writeFile(SD, ("/DataLog/CarLog.csv"), "Time (millis),Steering Angle");
+    writeFile(SD, ("/DataLog/CarLog.csv"), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle");
 
     // Testing the function of the SD card code *DELETE AFTER TEST*
     // listDir(SD, "/", 0);
@@ -331,10 +333,18 @@ void setup() {
     SteeringServo.attach(SteeringPin);
 
     // LED Setup Information
+    // Complete Setup LED
     pinMode(OnPin, OUTPUT);
     digitalWrite(OnPin, HIGH);                                      // Turning on LED once Setup is complete
 
+    // Gamepad Connected LED
     pinMode(ConnectedPin, OUTPUT);                                  // Setting up ConnectedPin state
+
+    // DataLogging LED
+    pinMode(RecordingPin, OUTPUT);                                  // Settung up DataLogging State
+
+    // Set recording status to false
+    Recording = false;
 }
 
 // Arduino loop function. Runs in CPU 1
@@ -350,20 +360,19 @@ void loop() {
     // This guarantees that the gamepad is valid and connected.
     if (myGamepad && myGamepad->isConnected()) {
         
-        // Servo Motor Steering
-        SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
-        SteeringServo.write(SteeringPosition);
-
-
         // Another way to query the buttons, is by calling buttons(), or
         // miscButtons() which return a bitmask.
         // Some gamepads also have DPAD, axis and more.
-        char buffer[120];
+        char buffer[150];
         snprintf(buffer, sizeof(buffer) - 1,
-                 "dpad: 0x%02x, buttons: 0x%04x, axis L: %4d, %4d, axis R: %4d, "
+                 "dpad: 0x%02x, buttons: 0x%04x, a:%1d, b:%1d, x:%1d, y:%1d, axis L: %4d, %4d, axis R: %4d, "
                  "%4d, brake: %4d, throttle: %4d, misc: 0x%02x",
                  myGamepad->dpad(),        // DPAD
                  myGamepad->buttons(),     // bitmask of pressed buttons
+                 myGamepad->a(),           // (0 - 1) Boolean value of button A
+                 myGamepad->b(),           // (0 - 1) Boolean value of button B
+                 myGamepad->x(),           // (0 - 1) Boolean value of button X
+                 myGamepad->y(),           // (0 - 1) Boolean value of button Y
                  myGamepad->axisX(),       // (-511 - 512) left X Axis
                  myGamepad->axisY(),       // (-511 - 512) left Y axis
                  myGamepad->axisRX(),      // (-511 - 512) right X axis
@@ -372,18 +381,44 @@ void loop() {
                  myGamepad->throttle(),    // (0 - 1023): throttle (AKA gas) button
                  myGamepad->miscButtons()  // bitmak of pressed "misc" buttons
         );
-        //Serial.println(buffer);
-    }
+        Serial.println(buffer);
 
-    if ((millis() - lastTime) > timerDelay) {
-        //Get epoch time
+        // Get epoch time
         epochTime = getTime();
-   
-        // Data log the loop
-        DataLog = "\n" + String(epochTime) + "," + String(SteeringPosition);
-        DataLogchar = DataLog.c_str();
-        appendFile(SD, "/DataLog/CarLog.csv", DataLog.c_str());
 
-        lastTime = millis();
+        // Servo Motor Steering
+        SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
+        SteeringServo.write(SteeringPosition);
+
+        // Data logging commands
+        // Set Recording to true when X is pressed
+        if(myGamepad->x() == 1){
+            Recording = true;
+        }
+
+        // Set Recording to flase when B is pressed
+        if(myGamepad->b() == 1){
+            Recording = false;
+
+            DataLogchar = DataLog.c_str();
+            appendFile(SD, "/DataLog/CarLog.csv", DataLogchar);
+        }
+
+        if(Recording == true){
+            digitalWrite(RecordingPin, HIGH);
+
+            if ((millis() - lastTime) > timerDelay) {
+
+                DataLog = DataLog + "\n" + String(epochTime) + "," + String(myGamepad->a()) + "," + String(myGamepad->b()) + "," 
+                + String(myGamepad->x()) + "," + String(myGamepad->y()) + "," + String(myGamepad->axisX()) + "," 
+                + String(myGamepad->axisY()) + "," + String(SteeringPosition);
+
+                lastTime = millis();
+            }
+        }
+
+        if(Recording == false){
+            digitalWrite(RecordingPin, LOW);
+        }
     }
 }
