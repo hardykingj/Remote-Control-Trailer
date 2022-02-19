@@ -23,6 +23,9 @@ int SteeringPin = 26;
 int OnPin = 33;
 int ConnectedPin = 27;
 int RecordingPin = 15;
+int DCDirectionPin = 25;
+int DCMotorPin = 12;
+int DCSignalPin = 39;
 
 // Model Constants
 double SteeringPosition = 0;
@@ -34,6 +37,12 @@ String FileName = "CarLog.csv";
 String DataLog;
 const char* DataLogchar;
 boolean Recording;
+double RotVelocity;
+double AxisY;
+
+// MOTOR STUFF DELETE ONCE CONFIGURED
+int i = 0;
+bool flag = HIGH;
 
 // Defined network credentials (Using Jacob's iPhone)
 const char* ssid     = "iPhone";
@@ -243,6 +252,14 @@ void deleteFile(fs::FS &fs, const char * path){
     }
 }
 
+// Convert controller input into DC motor power
+void DCMotorPower(){
+    AxisY = (double) myGamepad->axisY();
+
+    RotVelocity = 255 - (((abs(AxisY))/512.0)*255);
+    analogWrite(DCMotorPin, (int) RotVelocity);
+}
+
 // Creates a function that tests the capability of the SD card
 void testFileIO(fs::FS &fs, const char * path){
     File file = fs.open(path);
@@ -311,7 +328,7 @@ void setup() {
     // Create log file
     listDir(SD, "/", 0);
     createDir(SD, "/DataLog");
-    writeFile(SD, ("/DataLog/CarLog.csv"), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle");
+    writeFile(SD, ("/DataLog/CarLog.csv"), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
 
     // Testing the function of the SD card code *DELETE AFTER TEST*
     // listDir(SD, "/", 0);
@@ -331,6 +348,11 @@ void setup() {
 
     // Servo Motor Setup Information
     SteeringServo.attach(SteeringPin);
+
+    // DC Motor Setup Information
+    pinMode(DCDirectionPin, OUTPUT);                                // Direction control for DCDirectionPin with direction wire
+    pinMode(DCMotorPin, OUTPUT);                                    // PWM for DCMotorPin with PWM wire
+    digitalWrite(DCMotorPin, 255);                                  // Default DC Motor to not spin on StartUp
 
     // LED Setup Information
     // Complete Setup LED
@@ -390,6 +412,19 @@ void loop() {
         SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
         SteeringServo.write(SteeringPosition);
 
+        // DC Motor Power
+        if(myGamepad->axisY() < 0){
+            digitalWrite(DCDirectionPin, HIGH);
+
+            DCMotorPower();
+        }
+
+        if(myGamepad->axisY() >= 0){
+            digitalWrite(DCDirectionPin, LOW);
+
+            DCMotorPower();
+        }
+
         // Data logging commands
         // Set Recording to true when X is pressed
         if(myGamepad->x() == 1){
@@ -411,7 +446,8 @@ void loop() {
 
                 DataLog = DataLog + "\n" + String(epochTime) + "," + String(myGamepad->a()) + "," + String(myGamepad->b()) + "," 
                 + String(myGamepad->x()) + "," + String(myGamepad->y()) + "," + String(myGamepad->axisX()) + "," 
-                + String(myGamepad->axisY()) + "," + String(SteeringPosition);
+                + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
+                + String(RotVelocity);
 
                 lastTime = millis();
             }
