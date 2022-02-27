@@ -27,13 +27,13 @@ int SteeringPin = 26;
 int OnPin = 33;
 int ConnectedPin = 27;
 int RecordingPin = 15;
-int DCDirectionPin = 25;
+int DCDirectionPin = 21;
 int DCMotorPin = 12;
-int DCSignalPin = 34;
+int DCSignalPin = 25;
 
 // Model Constants
 double SteeringPosition = 0;
-int maxSteeringAngle = 180;
+int maxSteeringAngle = 360;                                         // Allows 180* of rotation
 
 // Code Constants
 long referencemills = 0;
@@ -42,6 +42,8 @@ const char* DataLogchar;
 boolean Recording;
 double RotVelocity;
 double AxisY;
+double DCMotorRev;
+double DCMotorPWM;
 
 // Data Log File Path
 String MasterFolderName = "DataLog";
@@ -408,6 +410,7 @@ void setup() {
     pinMode(DCDirectionPin, OUTPUT);                                // Direction control for DCDirectionPin with direction wire
     pinMode(DCMotorPin, OUTPUT);                                    // PWM for DCMotorPin with PWM wire
     digitalWrite(DCMotorPin, 255);                                  // Default DC Motor to not spin on StartUp
+    pinMode(DCSignalPin, INPUT);
 
     // LED Setup Information
     // Complete Setup LED
@@ -426,7 +429,7 @@ void setup() {
 
 // Arduino loop function. Runs in CPU 1
 void loop() {
-
+    
     // This call fetches all the gamepad info from the NINA (ESP32) module.
     // Just call this function in your main loop.
     // The gamepads pointer (the ones received in the callbacks) gets updated
@@ -490,6 +493,16 @@ void loop() {
             DCMotorPower();
         }
 
+        // Reading DC Motor Encoder
+        DCMotorPWM = pulseIn(DCSignalPin, HIGH, 10000);
+        if (DCMotorPWM == 0){
+            DCMotorRev = 0;
+        }
+        else{
+            DCMotorRev = (111111/(DCMotorPWM));
+        }
+        Serial.println(DCMotorRev);
+
         // Data logging commands
         // Set Recording to true when X is pressed
         if(myGamepad->x() == 1){
@@ -507,7 +520,7 @@ void loop() {
             createDir(SD, LocalFolderPath.c_str());
 
             FilePath = LocalFolderPath + "/" + FileName + ".csv";
-            writeFile(SD, FilePath.c_str(), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
+            writeFile(SD, FilePath.c_str(), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min");
 
             DataLogchar = DataLog.c_str();
             appendFile(SD, FilePath.c_str(), DataLogchar);
@@ -524,7 +537,7 @@ void loop() {
                 DataLog = DataLog + "\n" + String(epochTime) + "," + String(myGamepad->a()) + "," + String(myGamepad->b()) + "," 
                 + String(myGamepad->x()) + "," + String(myGamepad->y()) + "," + String(myGamepad->axisX()) + "," 
                 + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
-                + String(RotVelocity);
+                + String(RotVelocity) + "," + String(DCMotorRev);
 
                 lastTime = millis();
             }
