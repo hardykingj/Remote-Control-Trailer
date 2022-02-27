@@ -13,7 +13,10 @@
 #include "SPI.h"                                                    // Library for SD Card
 #include <WiFi.h>                                                   // Library for Wifi
 #include "time.h"                                                   // Library for Time
+#include <ctime>                                                    // Library for the conversion of Epochtime to GMT
+#include <filesystem>                                               // Library to allow folders to be created
 
+using namespace std;
 
 // Defining Classes
 static GamepadPtr myGamepad;
@@ -41,24 +44,36 @@ double RotVelocity;
 double AxisY;
 
 // Data Log File Path
-String FolderName = "DataLog";
+String MasterFolderName = "DataLog";
+String SubFolderName = "CarLog";
 String FolderPath;
-String FileName = "CarLog";
+String LocalFolderPath;
+String FileName = "Log";
 String FilePath;
 
-// Defined network credentials (Using Jacob's iPhone)
-const char* ssid     = "iPhone";
-const char* password = "12345678";
+// Time Variables
+// Day Variables
+String Year;
+String Month;
+String Day;
+String Hour;
+String Min;
+String Sec;
 
 // Timer variables
 unsigned long lastTime = 0;
 unsigned long timerDelay = 100;
 
-// NTP server to request epoch time
-const char* ntpServer = "pool.ntp.org";
-
 // Variable to save current epoch time
 unsigned long epochTime; 
+const char* GMTime;
+
+// Defined network credentials (Using Jacob's iPhone)
+const char* ssid     = "iPhone";
+const char* password = "12345678";
+
+// NTP server to request epoch time
+const char* ntpServer = "pool.ntp.org";
 
 // Function that gets current epoch time
 unsigned long getTime() {
@@ -335,24 +350,40 @@ void setup() {
         }
         Serial.print("SD OK");
 
-    // Get time of initialization
-    epochTime = getTime();
-    delay(200);
+    // Configuring Time
+    // Get Epochtime
+    epochTime = getTime();                                              // Fetches the Epochtime from web server
+    delay(200);                                                         // Delay to ensure the time is collected before any data logging
 
-    // Creating Data Log File
-    FolderPath = "/" + FolderName;
-    createDir(SD, FolderPath.c_str());
+    // Convert Epochtime to GMT
+    time_t epochTime;                                                   // Converting Epochtime into GMT
+    time(&epochTime);                                                   // Converting Epochtime into GMT
 
-    FilePath = "/" + FolderName + "/" + epochTime + ".csv";
-    Serial.print(FilePath);
-    writeFile(SD, FilePath.c_str(), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
-    // writeFile(SD, (FilePath.c_str()), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
+    // Prints GMT
+    GMTime = asctime(localtime(&epochTime));                            // Changing GMTime format to Www Mmm dd hh:mm:ss yyyy
+    Serial.print(GMTime);                                               // Printing the updated GMTime format
+    tm *local_time = localtime(&epochTime);                             // Creating local_time that will allow interigation into specific time variables
 
+    // Setting time variables
+    Year = local_time->tm_year + 1900;
+    Month = local_time->tm_mon + 1;
+    Day = local_time->tm_mday;
 
-    // Create log file
-    //listDir(SD, "/", 0);
-    //createDir(SD, "/DataLog");
-    //writeFile(SD, ("/DataLog/CarLog.csv"), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
+    // Creating Data Log Folders and Files
+    FolderPath = "/" + MasterFolderName;                                // Creating folder path for the master folder
+    createDir(SD, FolderPath.c_str());                                  // Creating the folder inside the SD card
+
+    FolderPath = FolderPath + "/" + SubFolderName;                      // Updating the folder path to include the sub folder
+    createDir(SD, FolderPath.c_str());                                  // Creating the sub folder inside of the master folder
+
+    FolderPath = FolderPath + "/" + Year;                               // Update the folder path to include the year
+    createDir(SD, FolderPath.c_str());                                  // Creating the year folder inside of the sub folder
+
+    FolderPath = FolderPath + "/" + Month;                              // Update the folder path to include the month
+    createDir(SD, FolderPath.c_str());                                  // Creating the month folder inside of the year folder
+
+    FolderPath = FolderPath + "/" + Day;                                // Update the folder path to include the day
+    createDir(SD, FolderPath.c_str());                                  // Creating the day folder inside of the month folder
 
     // Testing the function of the SD card code *DELETE AFTER TEST*
     // listDir(SD, "/", 0);
@@ -432,6 +463,16 @@ void loop() {
         // Get epoch time
         epochTime = getTime();
 
+        // Convert Epochtime to GMT
+        time_t epochTime;                                                   // Converting Epochtime into GMT
+        time(&epochTime);                                                   // Converting Epochtime into GMT
+        tm *local_time = localtime(&epochTime);                             // Creating local_time that will allow interigation into specific time variables
+
+        // Setting specific time variables
+        Hour = local_time->tm_hour;
+        Min = local_time->tm_min;
+        Sec = local_time->tm_sec;
+
         // Servo Motor Steering
         SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
         SteeringServo.write(SteeringPosition);
@@ -459,8 +500,20 @@ void loop() {
         if(myGamepad->b() == 1){
             Recording = false;
 
+            LocalFolderPath = FolderPath + "/" + Hour;
+            createDir(SD, LocalFolderPath.c_str());
+
+            LocalFolderPath = LocalFolderPath + "/" + Min;
+            createDir(SD, LocalFolderPath.c_str());
+
+            FilePath = LocalFolderPath + "/" + FileName + ".csv";
+            writeFile(SD, FilePath.c_str(), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
+
             DataLogchar = DataLog.c_str();
             appendFile(SD, FilePath.c_str(), DataLogchar);
+
+            LocalFolderPath == NULL;
+            FilePath == NULL;
         }
 
         if(Recording == true){
