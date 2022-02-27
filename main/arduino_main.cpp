@@ -14,6 +14,7 @@
 #include <WiFi.h>                                                   // Library for Wifi
 #include "time.h"                                                   // Library for Time
 
+
 // Defining Classes
 static GamepadPtr myGamepad;
 Servo SteeringServo;
@@ -33,12 +34,17 @@ int maxSteeringAngle = 180;
 
 // Code Constants
 long referencemills = 0;
-String FileName = "CarLog.csv";
 String DataLog;
 const char* DataLogchar;
 boolean Recording;
 double RotVelocity;
 double AxisY;
+
+// Data Log File Path
+String FolderName = "DataLog";
+String FolderPath;
+String FileName = "CarLog";
+String FilePath;
 
 // Defined network credentials (Using Jacob's iPhone)
 const char* ssid     = "iPhone";
@@ -321,10 +327,32 @@ void setup() {
     // Setup the Bluepad32 callbacks
     BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
 
+    // SD Card Initiation
+    Serial.begin(115200);
+        delay(200);
+        while (! SD.begin(33)){
+
+        }
+        Serial.print("SD OK");
+
+    // Get time of initialization
+    epochTime = getTime();
+    delay(200);
+
+    // Creating Data Log File
+    FolderPath = "/" + FolderName;
+    createDir(SD, FolderPath.c_str());
+
+    FilePath = "/" + FolderName + "/" + epochTime + ".csv";
+    Serial.print(FilePath);
+    writeFile(SD, FilePath.c_str(), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
+    // writeFile(SD, (FilePath.c_str()), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
+
+
     // Create log file
-    listDir(SD, "/", 0);
-    createDir(SD, "/DataLog");
-    writeFile(SD, ("/DataLog/CarLog.csv"), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
+    //listDir(SD, "/", 0);
+    //createDir(SD, "/DataLog");
+    //writeFile(SD, ("/DataLog/CarLog.csv"), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
 
     // Testing the function of the SD card code *DELETE AFTER TEST*
     // listDir(SD, "/", 0);
@@ -432,7 +460,7 @@ void loop() {
             Recording = false;
 
             DataLogchar = DataLog.c_str();
-            appendFile(SD, "/DataLog/CarLog.csv", DataLogchar);
+            appendFile(SD, FilePath.c_str(), DataLogchar);
         }
 
         if(Recording == true){
