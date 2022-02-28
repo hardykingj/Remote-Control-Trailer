@@ -33,7 +33,7 @@ int DCSignalPin = 25;
 
 // Model Constants
 double SteeringPosition = 0;
-int maxSteeringAngle = 360;                                         // Allows 180* of rotation
+int maxSteeringAngle = 180;
 
 // Code Constants
 long referencemills = 0;
@@ -63,8 +63,10 @@ String Min;
 String Sec;
 
 // Timer variables
-unsigned long lastTime = 0;
+unsigned long lastTimeDelay = 0;
+unsigned long lastTimeWrite = 0;
 unsigned long timerDelay = 100;
+unsigned long writeDelay = 1000;
 
 // Variable to save current epoch time
 unsigned long epochTime; 
@@ -501,17 +503,11 @@ void loop() {
         else{
             DCMotorRev = (111111/(DCMotorPWM));
         }
-        Serial.println(DCMotorRev);
 
         // Data logging commands
         // Set Recording to true when X is pressed
         if(myGamepad->x() == 1){
             Recording = true;
-        }
-
-        // Set Recording to flase when B is pressed
-        if(myGamepad->b() == 1){
-            Recording = false;
 
             LocalFolderPath = FolderPath + "/" + Hour;
             createDir(SD, LocalFolderPath.c_str());
@@ -521,25 +517,34 @@ void loop() {
 
             FilePath = LocalFolderPath + "/" + FileName + ".csv";
             writeFile(SD, FilePath.c_str(), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min");
+        }
 
-            DataLogchar = DataLog.c_str();
-            appendFile(SD, FilePath.c_str(), DataLogchar);
-
-            LocalFolderPath == NULL;
-            FilePath == NULL;
+        // Set Recording to flase when B is pressed
+        if(myGamepad->b() == 1){
+            Recording = false;
         }
 
         if(Recording == true){
             digitalWrite(RecordingPin, HIGH);
 
-            if ((millis() - lastTime) > timerDelay) {
+            if ((millis() - lastTimeDelay) > timerDelay) {
 
                 DataLog = DataLog + "\n" + String(epochTime) + "," + String(myGamepad->a()) + "," + String(myGamepad->b()) + "," 
                 + String(myGamepad->x()) + "," + String(myGamepad->y()) + "," + String(myGamepad->axisX()) + "," 
                 + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
                 + String(RotVelocity) + "," + String(DCMotorRev);
 
-                lastTime = millis();
+                lastTimeDelay = millis();
+            }
+
+            if ((millis() - lastTimeWrite) > writeDelay){
+
+                DataLogchar = DataLog.c_str();
+                appendFile(SD, FilePath.c_str(), DataLogchar);
+
+                DataLog = "";
+
+                lastTimeWrite = millis();
             }
         }
 
