@@ -17,7 +17,9 @@
 #include <filesystem>                                               // Library to allow folders to be created
 #include "DHT.h"                                                    // Library to allow DHT temperature and humidity sensor
 
-using namespace std;
+// Definitions
+using namespace std;                                                // Definition for the folder convention
+#define DHTTYPE DHT11                                               // Defining the type of temperature and humidity sensor
 
 // Defining Classes
 static GamepadPtr myGamepad;
@@ -31,6 +33,7 @@ int RecordingPin = 15;
 int DCDirectionPin = 21;
 int DCMotorPin = 12;
 int DCSignalPin = 25;
+int TempSensor = 14;
 
 // Model Constants
 double SteeringPosition = 0;
@@ -46,6 +49,11 @@ double AxisY;
 double DCMotorRev;
 double DCMotorPWM;
 File DataLogFile;
+
+// Temperature and Humidity Sensor Variables
+DHT dht(TempSensor, DHTTYPE);
+float Temperature;
+float Humidity;
 
 // Data Log File Path
 String MasterFolderName = "DataLog";
@@ -392,22 +400,6 @@ void setup() {
     FolderPath = FolderPath + "/" + Day;                                // Update the folder path to include the day
     createDir(SD, FolderPath.c_str());                                  // Creating the day folder inside of the month folder
 
-    // Testing the function of the SD card code *DELETE AFTER TEST*
-    // listDir(SD, "/", 0);
-    // createDir(SD, "/mydir");
-    // listDir(SD, "/", 0);
-    // removeDir(SD, "/mydir");
-    // listDir(SD, "/", 2);
-    // writeFile(SD, "/hello.txt", "Hello ");
-    // appendFile(SD, "/hello.txt", "World!\n");
-    // readFile(SD, "/hello.txt");
-    // deleteFile(SD, "/foo.txt");
-    // renameFile(SD, "/hello.txt", "/foo.txt");
-    // readFile(SD, "/foo.txt");
-    // testFileIO(SD, "/test.txt");
-    // Serial.printf("Total space: %lluMB\n", SD.totalBytes() / (1024 * 1024));
-    // Serial.printf("Used space: %lluMB\n", SD.usedBytes() / (1024 * 1024));
-
     // Servo Motor Setup Information
     SteeringServo.attach(SteeringPin);
 
@@ -416,6 +408,9 @@ void setup() {
     pinMode(DCMotorPin, OUTPUT);                                    // PWM for DCMotorPin with PWM wire
     digitalWrite(DCMotorPin, 255);                                  // Default DC Motor to not spin on StartUp
     pinMode(DCSignalPin, INPUT);
+
+    // Temperature and Humidity Sensor Setup Information
+    dht.begin();
 
     // LED Setup Information
     // Complete Setup LED
@@ -445,10 +440,6 @@ void loop() {
     // This guarantees that the gamepad is valid and connected.
     if (myGamepad && myGamepad->isConnected()) {
         
-        // To measure clock speed
-        digitalWrite(GPIO_pin, HIGH);
-        digitalWrite(GPIO_pin, LOW);
-
         // Another way to query the buttons, is by calling buttons(), or
         // miscButtons() which return a bitmask.
         // Some gamepads also have DPAD, axis and more.
@@ -484,6 +475,10 @@ void loop() {
         Hour = local_time->tm_hour;
         Min = local_time->tm_min;
         Sec = local_time->tm_sec;
+
+        // Temperature and Humidity Sensor
+        Humidity = dht.readHumidity();
+        Temperature = dht.readTemperature();
 
         // Servo Motor Steering
         SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
@@ -526,7 +521,7 @@ void loop() {
         
             DataLogFile = SD.open(FilePath.c_str(), FILE_WRITE);
 
-            DataLogFile.println("Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min");
+            DataLogFile.println("Date,Time,Temperature(C),Humidity(%),Button B,Button X,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min");
         }
 
         // Set Recording to flase when B is pressed
@@ -541,8 +536,9 @@ void loop() {
 
             if ((millis() - lastTimeDelay) > timerDelay) {
 
-                DataLog = String(epochTime) + "," + String(myGamepad->a()) + "," + String(myGamepad->b()) + "," 
-                + String(myGamepad->x()) + "," + String(myGamepad->y()) + "," + String(myGamepad->axisX()) + "," 
+                DataLog = String(Year) + "-" + String(Month) + "-" + String(Day) + "," + String(Hour) + "-" + String(Min) + "-" + String(Sec) + ","
+                + String(Temperature) + "," + String(Humidity) + "," + String(myGamepad->b()) + "," 
+                + String(myGamepad->x()) + "," + String(myGamepad->axisX()) + "," 
                 + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
                 + String(RotVelocity) + "," + String(DCMotorRev);
 
