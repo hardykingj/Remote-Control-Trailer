@@ -15,6 +15,7 @@
 #include "time.h"                                                   // Library for Time
 #include <ctime>                                                    // Library for the conversion of Epochtime to GMT
 #include <filesystem>                                               // Library to allow folders to be created
+#include "DHT.h"                                                    // Library to allow DHT temperature and humidity sensor
 
 using namespace std;
 
@@ -44,6 +45,7 @@ double RotVelocity;
 double AxisY;
 double DCMotorRev;
 double DCMotorPWM;
+File DataLogFile;
 
 // Data Log File Path
 String MasterFolderName = "DataLog";
@@ -65,8 +67,7 @@ String Sec;
 // Timer variables
 unsigned long lastTimeDelay = 0;
 unsigned long lastTimeWrite = 0;
-unsigned long timerDelay = 100;
-unsigned long writeDelay = 1000;
+unsigned long timerDelay = 62.5;                        // 16Hz Sampling frequency
 
 // Variable to save current epoch time
 unsigned long epochTime; 
@@ -327,6 +328,8 @@ void testFileIO(fs::FS &fs, const char * path){
 // Arduino setup function. Runs in CPU 1
 void setup() {
 
+    setCpuFrequencyMhz(240);
+
     pinMode(SS, INPUT_PULLDOWN);
     pinMode(MOSI, INPUT_PULLDOWN);
     pinMode(MISO, INPUT_PULLDOWN);
@@ -442,6 +445,10 @@ void loop() {
     // This guarantees that the gamepad is valid and connected.
     if (myGamepad && myGamepad->isConnected()) {
         
+        // To measure clock speed
+        digitalWrite(GPIO_pin, HIGH);
+        digitalWrite(GPIO_pin, LOW);
+
         // Another way to query the buttons, is by calling buttons(), or
         // miscButtons() which return a bitmask.
         // Some gamepads also have DPAD, axis and more.
@@ -516,12 +523,17 @@ void loop() {
             createDir(SD, LocalFolderPath.c_str());
 
             FilePath = LocalFolderPath + "/" + FileName + ".csv";
-            writeFile(SD, FilePath.c_str(), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min");
+        
+            DataLogFile = SD.open(FilePath.c_str(), FILE_WRITE);
+
+            DataLogFile.println("Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min");
         }
 
         // Set Recording to flase when B is pressed
         if(myGamepad->b() == 1){
             Recording = false;
+
+            DataLogFile.close();
         }
 
         if(Recording == true){
@@ -529,22 +541,14 @@ void loop() {
 
             if ((millis() - lastTimeDelay) > timerDelay) {
 
-                DataLog = DataLog + "\n" + String(epochTime) + "," + String(myGamepad->a()) + "," + String(myGamepad->b()) + "," 
+                DataLog = String(epochTime) + "," + String(myGamepad->a()) + "," + String(myGamepad->b()) + "," 
                 + String(myGamepad->x()) + "," + String(myGamepad->y()) + "," + String(myGamepad->axisX()) + "," 
                 + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
                 + String(RotVelocity) + "," + String(DCMotorRev);
 
+                DataLogFile.println(DataLog);
+
                 lastTimeDelay = millis();
-            }
-
-            if ((millis() - lastTimeWrite) > writeDelay){
-
-                DataLogchar = DataLog.c_str();
-                appendFile(SD, FilePath.c_str(), DataLogchar);
-
-                DataLog = "";
-
-                lastTimeWrite = millis();
             }
         }
 
