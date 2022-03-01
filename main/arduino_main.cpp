@@ -15,8 +15,11 @@
 #include "time.h"                                                   // Library for Time
 #include <ctime>                                                    // Library for the conversion of Epochtime to GMT
 #include <filesystem>                                               // Library to allow folders to be created
+#include "DHT.h"                                                    // Library to allow DHT temperature and humidity sensor
 
-using namespace std;
+// Definitions
+using namespace std;                                                // Definition for the folder convention
+#define DHTTYPE DHT11                                               // Defining the type of temperature and humidity sensor
 
 // Defining Classes
 static GamepadPtr myGamepad;
@@ -27,9 +30,10 @@ int SteeringPin = 26;
 int OnPin = 33;
 int ConnectedPin = 27;
 int RecordingPin = 15;
-int DCDirectionPin = 25;
+int DCDirectionPin = 21;
 int DCMotorPin = 12;
-int DCSignalPin = 34;
+int DCSignalPin = 25;
+int TempSensor = 14;
 
 // Model Constants
 double SteeringPosition = 0;
@@ -42,6 +46,14 @@ const char* DataLogchar;
 boolean Recording;
 double RotVelocity;
 double AxisY;
+double DCMotorRev;
+double DCMotorPWM;
+File DataLogFile;
+
+// Temperature and Humidity Sensor Variables
+DHT dht(TempSensor, DHTTYPE);
+float Temperature;
+float Humidity;
 
 // Data Log File Path
 String MasterFolderName = "DataLog";
@@ -61,8 +73,9 @@ String Min;
 String Sec;
 
 // Timer variables
-unsigned long lastTime = 0;
-unsigned long timerDelay = 100;
+unsigned long lastTimeDelay = 0;
+unsigned long lastTimeWrite = 0;
+unsigned long timerDelay = 62.5;                        // 16Hz Sampling frequency
 
 // Variable to save current epoch time
 unsigned long epochTime; 
@@ -323,6 +336,8 @@ void testFileIO(fs::FS &fs, const char * path){
 // Arduino setup function. Runs in CPU 1
 void setup() {
 
+    setCpuFrequencyMhz(240);
+
     pinMode(SS, INPUT_PULLDOWN);
     pinMode(MOSI, INPUT_PULLDOWN);
     pinMode(MISO, INPUT_PULLDOWN);
@@ -385,22 +400,6 @@ void setup() {
     FolderPath = FolderPath + "/" + Day;                                // Update the folder path to include the day
     createDir(SD, FolderPath.c_str());                                  // Creating the day folder inside of the month folder
 
-    // Testing the function of the SD card code *DELETE AFTER TEST*
-    // listDir(SD, "/", 0);
-    // createDir(SD, "/mydir");
-    // listDir(SD, "/", 0);
-    // removeDir(SD, "/mydir");
-    // listDir(SD, "/", 2);
-    // writeFile(SD, "/hello.txt", "Hello ");
-    // appendFile(SD, "/hello.txt", "World!\n");
-    // readFile(SD, "/hello.txt");
-    // deleteFile(SD, "/foo.txt");
-    // renameFile(SD, "/hello.txt", "/foo.txt");
-    // readFile(SD, "/foo.txt");
-    // testFileIO(SD, "/test.txt");
-    // Serial.printf("Total space: %lluMB\n", SD.totalBytes() / (1024 * 1024));
-    // Serial.printf("Used space: %lluMB\n", SD.usedBytes() / (1024 * 1024));
-
     // Servo Motor Setup Information
     SteeringServo.attach(SteeringPin);
 
@@ -408,6 +407,10 @@ void setup() {
     pinMode(DCDirectionPin, OUTPUT);                                // Direction control for DCDirectionPin with direction wire
     pinMode(DCMotorPin, OUTPUT);                                    // PWM for DCMotorPin with PWM wire
     digitalWrite(DCMotorPin, 255);                                  // Default DC Motor to not spin on StartUp
+    pinMode(DCSignalPin, INPUT);
+
+    // Temperature and Humidity Sensor Setup Information
+    dht.begin();
 
     // LED Setup Information
     // Complete Setup LED
@@ -426,7 +429,7 @@ void setup() {
 
 // Arduino loop function. Runs in CPU 1
 void loop() {
-
+    
     // This call fetches all the gamepad info from the NINA (ESP32) module.
     // Just call this function in your main loop.
     // The gamepads pointer (the ones received in the callbacks) gets updated
@@ -473,6 +476,10 @@ void loop() {
         Min = local_time->tm_min;
         Sec = local_time->tm_sec;
 
+        // Temperature and Humidity Sensor
+        Humidity = dht.readHumidity();
+        Temperature = dht.readTemperature();
+
         // Servo Motor Steering
         SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
         SteeringServo.write(SteeringPosition);
@@ -490,15 +497,19 @@ void loop() {
             DCMotorPower();
         }
 
+        // Reading DC Motor Encoder
+        DCMotorPWM = pulseIn(DCSignalPin, HIGH, 10000);
+        if (DCMotorPWM == 0){
+            DCMotorRev = 0;
+        }
+        else{
+            DCMotorRev = (111111/(DCMotorPWM));
+        }
+
         // Data logging commands
         // Set Recording to true when X is pressed
         if(myGamepad->x() == 1){
             Recording = true;
-        }
-
-        // Set Recording to flase when B is pressed
-        if(myGamepad->b() == 1){
-            Recording = false;
 
             LocalFolderPath = FolderPath + "/" + Hour;
             createDir(SD, LocalFolderPath.c_str());
@@ -507,26 +518,33 @@ void loop() {
             createDir(SD, LocalFolderPath.c_str());
 
             FilePath = LocalFolderPath + "/" + FileName + ".csv";
-            writeFile(SD, FilePath.c_str(), "Epoch Time,Button A,Button B,Button X,Button Y,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower");
+        
+            DataLogFile = SD.open(FilePath.c_str(), FILE_WRITE);
 
-            DataLogchar = DataLog.c_str();
-            appendFile(SD, FilePath.c_str(), DataLogchar);
+            DataLogFile.println("Date,Time,Temperature(C),Humidity(%),Button B,Button X,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min");
+        }
 
-            LocalFolderPath == NULL;
-            FilePath == NULL;
+        // Set Recording to flase when B is pressed
+        if(myGamepad->b() == 1){
+            Recording = false;
+
+            DataLogFile.close();
         }
 
         if(Recording == true){
             digitalWrite(RecordingPin, HIGH);
 
-            if ((millis() - lastTime) > timerDelay) {
+            if ((millis() - lastTimeDelay) > timerDelay) {
 
-                DataLog = DataLog + "\n" + String(epochTime) + "," + String(myGamepad->a()) + "," + String(myGamepad->b()) + "," 
-                + String(myGamepad->x()) + "," + String(myGamepad->y()) + "," + String(myGamepad->axisX()) + "," 
+                DataLog = String(Year) + "-" + String(Month) + "-" + String(Day) + "," + String(Hour) + "-" + String(Min) + "-" + String(Sec) + ","
+                + String(Temperature) + "," + String(Humidity) + "," + String(myGamepad->b()) + "," 
+                + String(myGamepad->x()) + "," + String(myGamepad->axisX()) + "," 
                 + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
-                + String(RotVelocity);
+                + String(RotVelocity) + "," + String(DCMotorRev);
 
-                lastTime = millis();
+                DataLogFile.println(DataLog);
+
+                lastTimeDelay = millis();
             }
         }
 
