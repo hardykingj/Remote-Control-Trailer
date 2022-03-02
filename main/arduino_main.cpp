@@ -20,6 +20,7 @@
 // Definitions
 using namespace std;                                                // Definition for the folder convention
 #define DHTTYPE DHT11                                               // Defining the type of temperature and humidity sensor
+#define SOUND_SPEED 0.034                                           // Defining the speed of sound in cm's
 
 // Defining Classes
 static GamepadPtr myGamepad;
@@ -34,6 +35,8 @@ int DCDirectionPin = 21;
 int DCMotorPin = 12;
 int DCSignalPin = 25;
 int TempSensor = 14;
+int UltraSonicTrig = 13;
+int UltraSonicEcho = 32;
 
 // Model Constants
 double SteeringPosition = 0;
@@ -55,6 +58,10 @@ DHT dht(TempSensor, DHTTYPE);
 float Temperature;
 float Humidity;
 
+// Ultrasonic Sensor Variables
+long duration;
+float distanceCM;
+
 // Data Log File Path
 String MasterFolderName = "DataLog";
 String SubFolderName = "CarLog";
@@ -75,7 +82,7 @@ String Sec;
 // Timer variables
 unsigned long lastTimeDelay = 0;
 unsigned long lastTimeWrite = 0;
-unsigned long timerDelay = 62.5;                        // 16Hz Sampling frequency
+unsigned long timerDelay = 55.5;                        // 18Hz Sampling frequency
 
 // Variable to save current epoch time
 unsigned long epochTime; 
@@ -412,6 +419,10 @@ void setup() {
     // Temperature and Humidity Sensor Setup Information
     dht.begin();
 
+    // Ultrasonic Sensor Setup Information
+    pinMode(UltraSonicTrig, OUTPUT);                                // Sets the UltraSonicTrig pin as an Output
+    pinMode(UltraSonicEcho, INPUT);                                 // Sets the UltraSonicEcho pin as an Input
+
     // LED Setup Information
     // Complete Setup LED
     pinMode(OnPin, OUTPUT);
@@ -480,6 +491,16 @@ void loop() {
         Humidity = dht.readHumidity();
         Temperature = dht.readTemperature();
 
+        // Ultrasonic Sensor
+        digitalWrite(UltraSonicTrig, LOW);                                          // Clears the UltraSonicTrig pin
+
+        digitalWrite(UltraSonicTrig, HIGH);                                         // Sets the UltraSonicTrig pin to High
+        delayMicroseconds(4);                                                       // Holds for 4 microseconds
+        digitalWrite(UltraSonicTrig, LOW);                                          // Set's UltraSonicTrig pin back to LOW
+
+        duration = pulseIn(UltraSonicEcho, HIGH);                                   // Reads the UltraSonicEcho pin and returns the sound wave travel time in microseconds
+        distanceCM = duration * SOUND_SPEED/2;                                      // Calculates the distance in CM
+
         // Servo Motor Steering
         SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
         SteeringServo.write(SteeringPosition);
@@ -521,7 +542,7 @@ void loop() {
         
             DataLogFile = SD.open(FilePath.c_str(), FILE_WRITE);
 
-            DataLogFile.println("Date,Time,Temperature(C),Humidity(%),Button B,Button X,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min");
+            DataLogFile.println("Date,Time,Temperature(C),Humidity(%),Button B,Button X,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min,Distance (cm)");
         }
 
         // Set Recording to flase when B is pressed
@@ -540,7 +561,7 @@ void loop() {
                 + String(Temperature) + "," + String(Humidity) + "," + String(myGamepad->b()) + "," 
                 + String(myGamepad->x()) + "," + String(myGamepad->axisX()) + "," 
                 + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
-                + String(RotVelocity) + "," + String(DCMotorRev);
+                + String(RotVelocity) + "," + String(DCMotorRev) + "," + String(distanceCM);
 
                 DataLogFile.println(DataLog);
 
