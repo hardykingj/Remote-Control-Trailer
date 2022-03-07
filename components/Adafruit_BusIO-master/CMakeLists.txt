@@ -4,9 +4,7 @@
 
 cmake_minimum_required(VERSION 3.5)
 
-set(srcs "Adafruit_BusIO_Register.cpp")
-set(srcs "Adafruit_I2CDevice.cpp")
-set(srcs "Adafruit_SPIDevice.cpp")
+set(srcs "Adafruit_BusIO_Register.cpp" "Adafruit_I2CDevice.cpp" "Adafruit_SPIDevice.cpp")
 
 set(requires "bluepad32" "arduino")
 
@@ -32,4 +30,3 @@ idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS "src"
                        REQUIRES ${requires})
 
-project(Adafruit_BusIO)

@@ -1,6 +1,6 @@
 set(srcs "Adafruit_LIS3DH.cpp")
 
-set(requires "bluepad32" "arduino")
+set(requires "bluepad32" "arduino" "Adafruit_BusIO-master" "Adafruit_Sensor-master")
 
 string(REPLACE " -Werror" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")

@@ -434,13 +434,11 @@ void setup() {
     
     Serial.println("LIS3DH test!");
     
-    if (! lis.begin(0x19)) {   // change this to 0x19 for alternative i2c address
+    if (! lis.begin(0x18)) {   // change this to 0x19 for alternative i2c address
         Serial.println("Couldnt start");
         while (1) yield();
     }
     Serial.println("LIS3DH found!");
-    
-    // lis.setRange(LIS3DH_RANGE_4_G);   // 2, 4, 8 or 16 G!
     
     Serial.print("Range = "); Serial.print(2 << lis.getRange());
     Serial.println("G");
@@ -538,26 +536,11 @@ void loop() {
 
         duration = pulseIn(UltraSonicEcho, HIGH);                                   // Reads the UltraSonicEcho pin and returns the sound wave travel time in microseconds
         distanceCM = duration * SOUND_SPEED/2;                                      // Calculates the distance in CM
-
-        // 3-Axis Accelerometer
-        lis.read();      // get X Y and Z data at once
-        // Then print out the raw data
-        Serial.print("X:  "); Serial.print(lis.x);
-        Serial.print("  \tY:  "); Serial.print(lis.y);
-        Serial.print("  \tZ:  "); Serial.print(lis.z);
-        
-        /* Or....get a new sensor event, normalized */
+      
+        // 3-axis accelerometer (normalised to m/s^2)
         sensors_event_t event;
         lis.getEvent(&event);
         
-        /* Display the results (acceleration is measured in m/s^2) */
-        Serial.print("\t\tX: "); Serial.print(event.acceleration.x);
-        Serial.print(" \tY: "); Serial.print(event.acceleration.y);
-        Serial.print(" \tZ: "); Serial.print(event.acceleration.z);
-        Serial.println(" m/s^2 ");
-        
-        Serial.println();
-
         // Servo Motor Steering
         SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
         SteeringServo.write(SteeringPosition);
@@ -599,7 +582,7 @@ void loop() {
         
             DataLogFile = SD.open(FilePath.c_str(), FILE_WRITE);
 
-            DataLogFile.println("Date,Time,Temperature(C),Humidity(%),Button B,Button X,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min,Distance (cm)");
+            DataLogFile.println("Date,Time,Temperature(C),Humidity(%),Button B,Button X,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min,Distance (cm),X-axis Acceleration (m/s^2),Y-axis Acceleration (m/s^2),Z-axis Acceleration (m/s^2)");
         }
 
         // Set Recording to flase when B is pressed
@@ -618,7 +601,8 @@ void loop() {
                 + String(Temperature) + "," + String(Humidity) + "," + String(myGamepad->b()) + "," 
                 + String(myGamepad->x()) + "," + String(myGamepad->axisX()) + "," 
                 + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
-                + String(RotVelocity) + "," + String(DCMotorRev) + "," + String(distanceCM);
+                + String(RotVelocity) + "," + String(DCMotorRev) + "," + String(distanceCM) + ","
+                + String(event.acceleration.x) + "," + String(event.acceleration.y) + "," + String(event.acceleration.z);
 
                 DataLogFile.println(DataLog);
 
