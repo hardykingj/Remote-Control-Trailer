@@ -7,6 +7,8 @@ set(ENV{BLUEPAD32_ARDUINO} TRUE)
 set(ENV{ESP32_Servo} TRUE)
 set(ENV{Adafruit_Sensor} TRUE)
 set(ENV{DHT-sensor-library} TRUE)
+set(ENV{Adafruit_LIS3DH} TRUE)
+set(ENV{Adafruit_BusIO-master} TRUE)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(app-template)
