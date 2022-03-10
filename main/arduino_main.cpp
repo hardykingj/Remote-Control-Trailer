@@ -1,4 +1,3 @@
-
 #include "sdkconfig.h"
 #ifndef CONFIG_BLUEPAD32_PLATFORM_ARDUINO
 #error "Must only be compiled when using Bluepad32 Arduino platform"
@@ -51,8 +50,9 @@ String DataLog;
 const char* DataLogchar;
 boolean Recording;
 double RotVelocity;
+double AxisX;
 double AxisY;
-double DCMotorRev;
+float DCMotorRev;
 double DCMotorPWM;
 File DataLogFile;
 
@@ -64,6 +64,22 @@ float Humidity;
 // Ultrasonic Sensor Variables
 long duration;
 float distanceCM;
+
+// PID Controller Variables
+double kp = 10;
+double ki = 0;
+double kd = 0;
+unsigned long UpdatePID = 0.0;                      // Time delay to update PID
+const double windupGuardMin = 0;                    // Set to output limit
+const double windupGuardMax = 255;                  // Set to output limit
+double ProcessInput;
+static double sp;
+static double last_value;
+static double i_err;
+double error;
+double pTerm;
+static double iTerm;
+double dTerm;
 
 // Data Log File Path
 String MasterFolderName = "DataLog";
@@ -78,20 +94,21 @@ String FilePath;
 String Year;
 String Month;
 String Day;
-String Hour;
-String Min;
-String Sec;
+int Hour;
+int Min;
+int Sec;
 
 // Accelerometer variables via I2C
 Adafruit_LIS3DH lis = Adafruit_LIS3DH();
 
 // Timer variables
 unsigned long lastTimeDelay = 0;
-unsigned long lastTimeWrite = 0;
-unsigned long timerDelay = 55.5;                        // 18Hz Sampling frequency
+unsigned long timerDelay = 1;                        // 100Hz Sampling frequency (55.5)
 
 // Variable to save current epoch time
 unsigned long epochTime; 
+unsigned long deltaTime;
+unsigned long SystemTime;
 const char* GMTime;
 
 // Defined network credentials (Using Jacob's iPhone)
@@ -346,6 +363,38 @@ void testFileIO(fs::FS &fs, const char * path){
     file.close();
 }
 
+// Creates a funciton for the PID controller
+double PID(double pv, double sp){
+    last_value = 0;
+    i_err = 0;
+
+    error = sp - pv;                                                // Obtaining the error value (difference between taget position and set position)
+    pTerm = kp * error;                                             // Obtaining the proportional term
+
+    iTerm = 0;
+    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
+    iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);
+
+    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
+    last_value = pv;
+
+    return pTerm + iTerm + dTerm;                                   // Returing sum of terms
+}
+
+// PID turning algorithum
+void setTunings(double Kp, double Ki, double Kd){
+    if (Kp<0 || Ki<0 || Kd<0) return;
+    
+    double dispKp = Kp;
+    double dispKi = Ki; 
+    double dispKd = Kd;
+    
+    double SampleTimeInSec = ((double)timerDelay)/1000; 
+    kp = Kp;
+    ki = Ki * SampleTimeInSec;
+    kd = Kd / SampleTimeInSec;
+}
+
 // Arduino setup function. Runs in CPU 1
 void setup() {
 
@@ -381,6 +430,8 @@ void setup() {
     // Configuring Time
     // Get Epochtime
     epochTime = getTime();                                              // Fetches the Epochtime from web server
+    deltaTime = millis();                                               // Records the millis at the time of collecting Epochtime
+
     delay(200);                                                         // Delay to ensure the time is collected before any data logging
 
     // Convert Epochtime to GMT
@@ -417,9 +468,9 @@ void setup() {
     SteeringServo.attach(SteeringPin);
 
     // DC Motor Setup Information
-    pinMode(DCDirectionPin, OUTPUT);                                // Direction control for DCDirectionPin with direction wire
-    pinMode(DCMotorPin, OUTPUT);                                    // PWM for DCMotorPin with PWM wire
-    digitalWrite(DCMotorPin, 255);                                  // Default DC Motor to not spin on StartUp
+    pinMode(DCDirectionPin, OUTPUT);                                    // Direction control for DCDirectionPin with direction wire
+    pinMode(DCMotorPin, OUTPUT);                                        // PWM for DCMotorPin with PWM wire
+    digitalWrite(DCMotorPin, 255);                                      // Default DC Motor to not spin on StartUp
     pinMode(DCSignalPin, INPUT);
 
     // Temperature and Humidity Sensor Setup Information
@@ -510,13 +561,13 @@ void loop() {
         );
         Serial.println(buffer);
 
-        // Get epoch time
-        epochTime = getTime();
+        // Get SystemTime from EpochTime
+        SystemTime = epochTime - deltaTime + millis();
 
         // Convert Epochtime to GMT
-        time_t epochTime;                                                   // Converting Epochtime into GMT
-        time(&epochTime);                                                   // Converting Epochtime into GMT
-        tm *local_time = localtime(&epochTime);                             // Creating local_time that will allow interigation into specific time variables
+        time_t SystemTime;                                                   // Converting Epochtime into GMT
+        time(&SystemTime);                                                   // Converting Epochtime into GMT
+        tm *local_time = localtime(&SystemTime);                             // Creating local_time that will allow interigation into specific time variables
 
         // Setting specific time variables
         Hour = local_time->tm_hour;
@@ -538,33 +589,43 @@ void loop() {
         distanceCM = duration * SOUND_SPEED/2;                                      // Calculates the distance in CM
       
         // 3-axis accelerometer (normalised to m/s^2)
-        sensors_event_t event;
-        lis.getEvent(&event);
+        sensors_event_t Acceleration;
+        lis.getEvent(&Acceleration);
         
         // Servo Motor Steering
-        SteeringPosition = (((myGamepad->axisX())+512)*maxSteeringAngle/1024);
+        AxisX = myGamepad->axisX();
+        SteeringPosition = ((AxisX+512)*maxSteeringAngle/1024);
         SteeringServo.write(SteeringPosition);
 
-        // DC Motor Power
-        if(myGamepad->axisY() < 0){
-            digitalWrite(DCDirectionPin, HIGH);
-
-            DCMotorPower();
-        }
-
-        if(myGamepad->axisY() >= 0){
-            digitalWrite(DCDirectionPin, LOW);
-
-            DCMotorPower();
-        }
-
+        // DC Motor
         // Reading DC Motor Encoder
-        DCMotorPWM = pulseIn(DCSignalPin, HIGH, 10000);
+        DCMotorPWM = pulseIn(DCSignalPin, HIGH, 9000);
         if (DCMotorPWM == 0){
             DCMotorRev = 0;
         }
         else{
             DCMotorRev = (111111/(DCMotorPWM));
+        }
+
+        // Set DC motor direction
+        if(myGamepad->axisY() <= 0){
+            digitalWrite(DCDirectionPin, HIGH);
+        }
+        else{
+            digitalWrite(DCDirectionPin, LOW);
+        }
+
+        // Control DC motor rpm with PID controller
+        AxisY = myGamepad->axisY();
+        sp = ((abs(AxisY)*159)/512);                                        // Set point for rpm of DC motor encoder
+        if((millis() - UpdatePID >= timerDelay)){
+            ProcessInput = PID((double) DCMotorRev, sp);                    // Passing values into PID function
+            analogWrite(DCMotorPin, (int) ProcessInput);                // Writting output value from PID function to DCMotorPin (speed) - writing in PWM
+
+            Serial.println(DCMotorRev);
+            Serial.println(ProcessInput);
+
+            UpdatePID = millis();                                           // Update the refresh gap
         }
 
         // Data logging commands
@@ -582,7 +643,7 @@ void loop() {
         
             DataLogFile = SD.open(FilePath.c_str(), FILE_WRITE);
 
-            DataLogFile.println("Date,Time,Temperature(C),Humidity(%),Button B,Button X,Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min,Distance (cm),X-axis Acceleration (m/s^2),Y-axis Acceleration (m/s^2),Z-axis Acceleration (m/s^2)");
+            DataLogFile.println("Time(Hour),Time(Min),Time(Sec),Temperature(C),Humidity(%),Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min,Distance (cm),X-axis Acceleration (m/s^2),Y-axis Acceleration (m/s^2),Z-axis Acceleration (m/s^2)");
         }
 
         // Set Recording to flase when B is pressed
@@ -597,14 +658,36 @@ void loop() {
 
             if ((millis() - lastTimeDelay) > timerDelay) {
 
-                DataLog = String(Year) + "-" + String(Month) + "-" + String(Day) + "," + String(Hour) + "-" + String(Min) + "-" + String(Sec) + ","
-                + String(Temperature) + "," + String(Humidity) + "," + String(myGamepad->b()) + "," 
-                + String(myGamepad->x()) + "," + String(myGamepad->axisX()) + "," 
-                + String(myGamepad->axisY()) + "," + String(SteeringPosition) + "," + String(digitalRead(DCDirectionPin)) + "," 
-                + String(RotVelocity) + "," + String(DCMotorRev) + "," + String(distanceCM) + ","
-                + String(event.acceleration.x) + "," + String(event.acceleration.y) + "," + String(event.acceleration.z);
-
-                DataLogFile.println(DataLog);
+                DataLogFile.print(Hour);
+                DataLogFile.print(",");
+                DataLogFile.print(Min);
+                DataLogFile.print(",");
+                DataLogFile.print(Sec);
+                DataLogFile.print(",");
+                DataLogFile.print(Temperature);
+                DataLogFile.print(",");
+                DataLogFile.print(Humidity);
+                DataLogFile.print(",");
+                DataLogFile.print(AxisX);
+                DataLogFile.print(",");
+                DataLogFile.print(AxisY);
+                DataLogFile.print(",");
+                DataLogFile.print(SteeringPosition);
+                DataLogFile.print(",");
+                DataLogFile.print(digitalRead(DCDirectionPin));
+                DataLogFile.print(",");
+                DataLogFile.print(RotVelocity);
+                DataLogFile.print(",");
+                DataLogFile.print(DCMotorRev);
+                DataLogFile.print(",");
+                DataLogFile.print(distanceCM);
+                DataLogFile.print(",");
+                DataLogFile.print(Acceleration.acceleration.x);
+                DataLogFile.print(",");
+                DataLogFile.print(Acceleration.acceleration.y);
+                DataLogFile.print(",");
+                DataLogFile.print(Acceleration.acceleration.z);
+                DataLogFile.print("\n");
 
                 lastTimeDelay = millis();
             }
