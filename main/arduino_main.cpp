@@ -66,8 +66,8 @@ long duration;
 float distanceCM;
 
 // PID Controller Variables
-double kp = 10;
-double ki = 0;
+double kp = 100;
+double ki = 1;
 double kd = 0;
 unsigned long UpdatePID = 0.0;                      // Time delay to update PID
 const double windupGuardMin = 0;                    // Set to output limit
@@ -80,6 +80,8 @@ double error;
 double pTerm;
 static double iTerm;
 double dTerm;
+double PID_output;
+double PID_return;
 
 // Data Log File Path
 String MasterFolderName = "DataLog";
@@ -364,7 +366,48 @@ void testFileIO(fs::FS &fs, const char * path){
 }
 
 // Creates a funciton for the PID controller
-double PID(double pv, double sp){
+double PID_output_limit_max( double pv, double sp){
+    double pidOutput = 0.0;
+    last_value = 0;
+    i_err = 0;
+
+    error = sp;                                                // Obtaining the error value (difference between taget position and set position)
+    pTerm = kp * error;                                             // Obtaining the proportional term
+
+    iTerm = 0;
+    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
+    iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);
+
+    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
+    last_value = pv;
+
+    pidOutput = pTerm + iTerm + dTerm;
+
+    return pidOutput;
+}
+
+double PID_output_limit_min( double pv, double sp){
+    double pidOutput = 0.0;
+    last_value = 0;
+    i_err = 0;
+
+    error = 159-sp;                                                // Obtaining the error value (difference between taget position and set position)
+    pTerm = kp * error;                                             // Obtaining the proportional term
+
+    iTerm = 0;
+    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
+    iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);
+
+    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
+    last_value = pv;
+
+    pidOutput = pTerm + iTerm + dTerm;
+
+    return pidOutput;
+}
+
+// Creates a funciton for the PID controller
+double PID(double pv, double sp, double pidMin, double pidMax){
     last_value = 0;
     i_err = 0;
 
@@ -378,7 +421,16 @@ double PID(double pv, double sp){
     dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
     last_value = pv;
 
-    return pTerm + iTerm + dTerm;                                   // Returing sum of terms
+    PID_output = pTerm + iTerm + dTerm;
+
+    if (PID_output >= 0) {
+        PID_return = 255 - (((PID_output)/pidMax)*255);
+    }
+    else {
+        PID_return = 0 - ((PID_output/abs(pidMin))*255);
+    }
+
+    return PID_return;                                   // Returing sum of terms
 }
 
 // PID turning algorithum
@@ -608,22 +660,31 @@ void loop() {
         }
 
         // Set DC motor direction
-        if(myGamepad->axisY() <= 0){
+        if(myGamepad->axisY() < 0){
             digitalWrite(DCDirectionPin, HIGH);
         }
-        else{
+        else if(myGamepad->axisY() > 0){
             digitalWrite(DCDirectionPin, LOW);
         }
 
-        // Control DC motor rpm with PID controller
+        // DC motor control with PID controller
+        double pidMin = 0.0;
+        double pidMax = 0.0;
+
+        //sp = 130.0;
+
         AxisY = myGamepad->axisY();
-        sp = ((abs(AxisY)*159)/512);                                        // Set point for rpm of DC motor encoder
+        sp = (abs(AxisY)/512)*159;
+
         if((millis() - UpdatePID >= timerDelay)){
-            ProcessInput = PID((double) DCMotorRev, sp);                    // Passing values into PID function
-            analogWrite(DCMotorPin, (int) ProcessInput);                // Writting output value from PID function to DCMotorPin (speed) - writing in PWM
+            pidMin = PID_output_limit_min((double) DCMotorRev, sp);
+            pidMax = PID_output_limit_max((double) DCMotorRev, sp);
+            ProcessInput = PID((double) DCMotorRev, sp, pidMin, pidMax);
+            analogWrite(DCMotorPin, (int) ProcessInput);                    // Writting output value from PID function to DCMotorPin (speed) - writing in PWM
 
             Serial.println(DCMotorRev);
             Serial.println(ProcessInput);
+            Serial.println(sp);
 
             UpdatePID = millis();                                           // Update the refresh gap
         }
