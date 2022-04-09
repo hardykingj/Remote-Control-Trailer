@@ -7,130 +7,61 @@
 #include <Arduino.h>                                                // General Arduino Library
 #include <Bluepad32.h>                                              // Library for Bluepad32
 #include "..\components\ESP32Servo-master\src\ESP32_Servo.h"        // Library for Servo Motor
-#include "FS.h"                                                     // Library for SD Card
-#include "SD.h"                                                     // Library for SD Card
-#include "SPI.h"                                                    // Library for SD Card
 #include <WiFi.h>                                                   // Library for Wifi
-#include "time.h"                                                   // Library for Time
-#include <ctime>                                                    // Library for the conversion of Epochtime to GMT
-#include <filesystem>                                               // Library to allow folders to be created
-#include "DHT.h"                                                    // Library to allow DHT temperature and humidity sensor
-#include <Adafruit_Sensor.h>                                        // Library to allow Adafruit sensors
-#include <Wire.h>                                                   // Library to allow of I2C wiring
-#include <Adafruit_LIS3DH.h>                                        // Library to allow 3-axis accelerometer
+#include <Adafruit_Sensor.h>                                        // Library for Adafruit sensors
+#include <Wire.h>                                                   // Library for I2C wiring
+#include <Adafruit_LIS3DH.h>                                        // Library for 3-axis accelerometer
 
 // Definitions
-using namespace std;                                                // Definition for the folder convention
-#define DHTTYPE DHT11                                               // Defining the type of temperature and humidity sensor
-#define SOUND_SPEED 0.034                                           // Defining the speed of sound in cm's
+#define SOUND_SPEED 0.0343                                          // Defining the speed of sound (CM's))
 
-// Defining Classes
-static GamepadPtr myGamepad;
-Servo SteeringServo;
+// Setting Classes
+static GamepadPtr myGamepad;                                        // Setting the controller as a gamepad type
+Servo SteeringServo;                                                // Setting the servo motor as a servo type
 
 // Pin Configuration
 int SteeringPin = 26;
-int OnPin = 33;
-int ConnectedPin = 27;
-int RecordingPin = 15;
-int DCDirectionPin = 21;
-int DCMotorPin = 12;
-int DCSignalPin = 25;
-int TempSensor = 14;
-int UltraSonicTrig = 13;
-int UltraSonicEcho = 32;
+int DCMotorPin1 = 21;
+int DCMotorPin2 = 12;
+int DCMotorPWM = 25;
+int UltraSonicTrigRight = 13;
+int UltraSonicEchoRight = 32;
+int UltraSonicTrigLeft = 27;
+int UltraSonicEchoLeft = 14;
 
-// Model Constants
+// Constrants
 double SteeringPosition = 0;
-int maxSteeringAngle = 180;
+int CarMaxSteeringAngle = 80;
 
-// Code Constants
-long referencemills = 0;
-String DataLog;
-const char* DataLogchar;
-boolean Recording;
-double RotVelocity;
+// Variables
+// Controller Variables
 double AxisX;
 double AxisY;
-float DCMotorRev;
-double DCMotorPWM;
-File DataLogFile;
 
-// Temperature and Humidity Sensor Variables
-DHT dht(TempSensor, DHTTYPE);
-float Temperature;
-float Humidity;
+// Steering Variables
+double SteeringAngle;
+
+// Motor Power Varaibles
+double DCMotorSpeed;
+boolean DCMotorDirection;
 
 // Ultrasonic Sensor Variables
-long duration;
-float distanceCM;
+long DurationRight;
+long DurationLeft;
+float DistanceCMRight;
+float DistanceCMLeft;
 
-// PID Controller Variables
-double kp = 100;
-double ki = 1;
-double kd = 0;
-unsigned long UpdatePID = 0.0;                      // Time delay to update PID
-const double windupGuardMin = 0;                    // Set to output limit
-const double windupGuardMax = 255;                  // Set to output limit
-double ProcessInput;
-static double sp;
-static double last_value;
-static double i_err;
-double error;
-double pTerm;
-static double iTerm;
-double dTerm;
-double PID_output;
-double PID_return;
-
-// Data Log File Path
-String MasterFolderName = "DataLog";
-String SubFolderName = "CarLog";
-String FolderPath;
-String LocalFolderPath;
-String FileName = "Log";
-String FilePath;
-
-// Time Variables
-// Day Variables
-String Year;
-String Month;
-String Day;
-int Hour;
-int Min;
-int Sec;
-
-// Accelerometer variables via I2C
+// Accelerometer Variables (using I2C)
 Adafruit_LIS3DH lis = Adafruit_LIS3DH();
 
-// Timer variables
+// Timer Varaibles
 unsigned long lastTimeDelay = 0;
-unsigned long timerDelay = 1;                        // 100Hz Sampling frequency (55.5)
+unsigned long timerDelay = 1;                                       // Target 100Hz Sampling frequency
 
-// Variable to save current epoch time
-unsigned long epochTime; 
-unsigned long deltaTime;
-unsigned long SystemTime;
-const char* GMTime;
-
-// Defined network credentials (Using Jacob's iPhone)
-const char* ssid     = "iPhone";
-const char* password = "12345678";
-
-// NTP server to request epoch time
-const char* ntpServer = "pool.ntp.org";
-
-// Function that gets current epoch time
-unsigned long getTime() {
-  time_t now;
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    //Serial.println("Failed to obtain time");
-    return(0);
-  }
-  time(&now);
-  return now;
-}
+// Define the Network Credentials (Using TP-link range extender)
+const char* ssid     = "TPD_Test_Wifi";                             // Name of the Wifi Network
+const char* password = "";                                          // Password of the Wifi Network (no password set)
+WiFiServer wifiServer(80);                                          // Port the ESP32 will send data along
 
 // Initialize WiFi
 void initWiFi() {
@@ -144,326 +75,43 @@ void initWiFi() {
   Serial.println(WiFi.localIP());
 }
 
-// Callback gets called any time a new gamepad is connect (upto 4 can be connected at anytime)
+// Connect a New Gamepad - called any time a new gamepad is connect
 void onConnectedGamepad(GamepadPtr gp) {
-
     myGamepad = gp;
     Serial.println("CALLBACK: Gamepad is connected!");
-
-    digitalWrite(ConnectedPin, HIGH);                               // Turing on LED once Gamepad is connected
 }
 
-// Callback gets called any time a gamepad is disconnect
+// Disconnected Gamepad - called any time a gamepad is disconnect
 void onDisconnectedGamepad(GamepadPtr gp) {
     Serial.println("CALLBACK: Gamepad is disconnected!");
     myGamepad = nullptr;
-
-    digitalWrite(ConnectedPin, LOW);                                // Turning off LED once Gamepad is connected
-}
-
-// Functions required to enable SD card integration
-// Setup SD Card
-void initSDCard(){
-    if(!SD.begin(SS)){
-        Serial.println("Card Mount Failed");
-        return;
-    }
-    uint8_t cardType = SD.cardType();
-
-    if(cardType == CARD_NONE){
-        Serial.println("No SD card attached");
-        return;
-    }
-
-    // Print SD card type on Serial Monitor
-    Serial.print("SD Card Type: ");
-    if(cardType == CARD_MMC){
-        Serial.println("MMC");
-    } else if(cardType == CARD_SD){
-        Serial.println("SDSC");
-    } else if(cardType == CARD_SDHC){
-        Serial.println("SDHC");
-    } else {
-        Serial.println("UNKNOWN");
-    }
-
-    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-    Serial.printf("SD Card Size: %lluMB\n", cardSize);
-}
-
-// Listing of directories on SD card
-void listDir(fs::FS &fs, const char * dirname, uint8_t levels){
-    Serial.printf("Listing directory: %s\n", dirname);
-
-    File root = fs.open(dirname);
-    if(!root){
-        Serial.println("Failed to open directory");
-        return;
-    }
-    if(!root.isDirectory()){
-        Serial.println("Not a directory");
-        return;
-    }
-
-    File file = root.openNextFile();
-    while(file){
-        if(file.isDirectory()){
-            Serial.print("  DIR : ");
-            Serial.println(file.name());
-            if(levels){
-                listDir(fs, file.path(), levels -1);
-            }
-        } else {
-            Serial.print("  FILE: ");
-            Serial.print(file.name());
-            Serial.print("  SIZE: ");
-            Serial.println(file.size());
-        }
-        file = root.openNextFile();
-    }
-}
-
-// Create a directory on SD card
-void createDir(fs::FS &fs, const char * path){
-    Serial.printf("Creating Dir: %s\n", path);
-    if(fs.mkdir(path)){
-        Serial.println("Dir created");
-    } else {
-        Serial.println("mkdir failed");
-    }
-}   
-
-// Removes a directory on SD card
-void removeDir(fs::FS &fs, const char * path){
-    Serial.printf("Removing Dir: %s\n", path);
-    if(fs.rmdir(path)){
-        Serial.println("Dir removed");
-    } else {
-        Serial.println("rmdir failed");
-    }
-}
-
-// Read file content on SD card
-void readFile(fs::FS &fs, const char * path){
-    Serial.printf("Reading file: %s\n", path);
-
-    File file = fs.open(path);
-    if(!file){
-        Serial.println("Failed to open file for reading");
-        return;
-    }
-
-    Serial.print("Read from file: ");
-    while(file.available()){
-        Serial.write(file.read());
-    }
-    file.close();
-}
-
-// Write file content on SD card
-void writeFile(fs::FS &fs, const char * path, const char * message){
-    Serial.printf("Writing file: %s\n", path);
-
-    File file = fs.open(path, FILE_WRITE);
-    if(!file){
-        Serial.println("Failed to open file for writing");
-        return;
-    }
-    if(file.print(message)){
-        Serial.println("File written");
-    } else {
-        Serial.println("Write failed");
-    }
-    file.close();
-}
-
-// Append content to a file on SD card
-void appendFile(fs::FS &fs, const char * path, const char * message){
-    Serial.printf("Appending to file: %s\n", path);
-
-    File file = fs.open(path, FILE_APPEND);
-    if(!file){
-        Serial.println("Failed to open file for appending");
-        return;
-    }
-    if(file.print(message)){
-        Serial.println("Message appended");
-    } else {
-        Serial.println("Append failed");
-    }
-    file.close();
-}
-
-// Rename a file on SD card
-void renameFile(fs::FS &fs, const char * path1, const char * path2){
-    Serial.printf("Renaming file %s to %s\n", path1, path2);
-    if (fs.rename(path1, path2)) {
-        Serial.println("File renamed");
-    } else {
-        Serial.println("Rename failed");
-    }
-}
-
-// Delete a file on SD card
-void deleteFile(fs::FS &fs, const char * path){
-    Serial.printf("Deleting file: %s\n", path);
-    if(fs.remove(path)){
-        Serial.println("File deleted");
-    } else {
-        Serial.println("Delete failed");
-    }
-}
-
-// Convert controller input into DC motor power
-void DCMotorPower(){
-    AxisY = (double) myGamepad->axisY();
-
-    RotVelocity = 255 - (((abs(AxisY))/512.0)*255);
-    analogWrite(DCMotorPin, (int) RotVelocity);
-}
-
-// Creates a function that tests the capability of the SD card
-void testFileIO(fs::FS &fs, const char * path){
-    File file = fs.open(path);
-    static uint8_t buf[512];
-    size_t len = 0;
-    uint32_t start = millis();
-    uint32_t end = start;
-    if(file){
-        len = file.size();
-        size_t flen = len;
-        start = millis();
-        while(len){
-            size_t toRead = len;
-            if(toRead > 512){
-                toRead = 512;
-            }
-            file.read(buf, toRead);
-            len -= toRead;
-        }
-        end = millis() - start;
-        Serial.printf("%u bytes read for %u ms\n", flen, end);
-        file.close();
-    } else {
-        Serial.println("Failed to open file for reading");
-    }
-
-
-    file = fs.open(path, FILE_WRITE);
-    if(!file){
-        Serial.println("Failed to open file for writing");
-        return;
-    }
-
-    size_t i;
-    start = millis();
-    for(i=0; i<2048; i++){
-        file.write(buf, 512);
-    }
-    end = millis() - start;
-    Serial.printf("%u bytes written for %u ms\n", 2048 * 512, end);
-    file.close();
-}
-
-// Creates a funciton for the PID controller
-double PID_output_limit_max( double pv, double sp){
-    double pidOutput = 0.0;
-    last_value = 0;
-    i_err = 0;
-
-    error = sp;                                                // Obtaining the error value (difference between taget position and set position)
-    pTerm = kp * error;                                             // Obtaining the proportional term
-
-    iTerm = 0;
-    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
-    iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);
-
-    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
-    last_value = pv;
-
-    pidOutput = pTerm + iTerm + dTerm;
-
-    return pidOutput;
-}
-
-double PID_output_limit_min( double pv, double sp){
-    double pidOutput = 0.0;
-    last_value = 0;
-    i_err = 0;
-
-    error = 159-sp;                                                // Obtaining the error value (difference between taget position and set position)
-    pTerm = kp * error;                                             // Obtaining the proportional term
-
-    iTerm = 0;
-    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
-    iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);
-
-    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
-    last_value = pv;
-
-    pidOutput = pTerm + iTerm + dTerm;
-
-    return pidOutput;
-}
-
-// Creates a funciton for the PID controller
-double PID(double pv, double sp, double pidMin, double pidMax){
-    last_value = 0;
-    i_err = 0;
-
-    error = sp - pv;                                                // Obtaining the error value (difference between taget position and set position)
-    pTerm = kp * error;                                             // Obtaining the proportional term
-
-    iTerm = 0;
-    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
-    iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);
-
-    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
-    last_value = pv;
-
-    PID_output = pTerm + iTerm + dTerm;
-
-    if (PID_output >= 0) {
-        PID_return = 255 - (((PID_output)/pidMax)*255);
-    }
-    else {
-        PID_return = 0 - ((PID_output/abs(pidMin))*255);
-    }
-
-    return PID_return;                                   // Returing sum of terms
-}
-
-// PID turning algorithum
-void setTunings(double Kp, double Ki, double Kd){
-    if (Kp<0 || Ki<0 || Kd<0) return;
-    
-    double dispKp = Kp;
-    double dispKi = Ki; 
-    double dispKd = Kd;
-    
-    double SampleTimeInSec = ((double)timerDelay)/1000; 
-    kp = Kp;
-    ki = Ki * SampleTimeInSec;
-    kd = Kd / SampleTimeInSec;
 }
 
 // Arduino setup function. Runs in CPU 1
 void setup() {
+    setCpuFrequencyMhz(240);                                        // Overclocking the frequency of the ESP32 core
 
-    setCpuFrequencyMhz(240);
+    // Wifi
+    // Connecting to WiFi
+    Serial.begin(115200);                                           // Setting the serial baud rate
+    WiFi.begin(ssid, password);                                     // Begins connecting to the Wifi network
 
-    pinMode(SS, INPUT_PULLDOWN);
-    pinMode(MOSI, INPUT_PULLDOWN);
-    pinMode(MISO, INPUT_PULLDOWN);
-    pinMode(SCK, INPUT_PULLDOWN);
+    // Printing Info While Connecting to Wifi
+    while (WiFi.status() != WL_CONNECTED){
+        delay(1000);
+        Serial.println("Connecting to WiFi ...");
+    }
 
-    initWiFi();
-    initSDCard();
-    configTime(0, 0, ntpServer);
+    // Printing Info When Connected to Wifi
+    Serial.println("Connected to the Wifi Network");
+    Serial.println(WiFi.localIP());
 
-    // BluePad32 Setup Information
-    Serial.begin(115200);
+    // Initiate the TCP server
+    wifiServer.begin();
 
+
+    // Bluepad32
+    // Checking verion and firmware
     String fv = BP32.firmwareVersion();
     Serial.print("Firmware: ");
     Serial.println(fv);
@@ -471,73 +119,29 @@ void setup() {
     // Setup the Bluepad32 callbacks
     BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
 
-    // SD Card Initiation
-    Serial.begin(115200);
-        delay(200);
-        while (! SD.begin(33)){
-
-        }
-        Serial.print("SD OK");
-
-    // Configuring Time
-    // Get Epochtime
-    epochTime = getTime();                                              // Fetches the Epochtime from web server
-    deltaTime = millis();                                               // Records the millis at the time of collecting Epochtime
-
-    delay(200);                                                         // Delay to ensure the time is collected before any data logging
-
-    // Convert Epochtime to GMT
-    time_t epochTime;                                                   // Converting Epochtime into GMT
-    time(&epochTime);                                                   // Converting Epochtime into GMT
-
-    // Prints GMT
-    GMTime = asctime(localtime(&epochTime));                            // Changing GMTime format to Www Mmm dd hh:mm:ss yyyy
-    Serial.print(GMTime);                                               // Printing the updated GMTime format
-    tm *local_time = localtime(&epochTime);                             // Creating local_time that will allow interigation into specific time variables
-
-    // Setting time variables
-    Year = local_time->tm_year + 1900;
-    Month = local_time->tm_mon + 1;
-    Day = local_time->tm_mday;
-
-    // Creating Data Log Folders and Files
-    FolderPath = "/" + MasterFolderName;                                // Creating folder path for the master folder
-    createDir(SD, FolderPath.c_str());                                  // Creating the folder inside the SD card
-
-    FolderPath = FolderPath + "/" + SubFolderName;                      // Updating the folder path to include the sub folder
-    createDir(SD, FolderPath.c_str());                                  // Creating the sub folder inside of the master folder
-
-    FolderPath = FolderPath + "/" + Year;                               // Update the folder path to include the year
-    createDir(SD, FolderPath.c_str());                                  // Creating the year folder inside of the sub folder
-
-    FolderPath = FolderPath + "/" + Month;                              // Update the folder path to include the month
-    createDir(SD, FolderPath.c_str());                                  // Creating the month folder inside of the year folder
-
-    FolderPath = FolderPath + "/" + Day;                                // Update the folder path to include the day
-    createDir(SD, FolderPath.c_str());                                  // Creating the day folder inside of the month folder
 
     // Servo Motor Setup Information
     SteeringServo.attach(SteeringPin);
 
-    // DC Motor Setup Information
-    pinMode(DCDirectionPin, OUTPUT);                                    // Direction control for DCDirectionPin with direction wire
-    pinMode(DCMotorPin, OUTPUT);                                        // PWM for DCMotorPin with PWM wire
-    digitalWrite(DCMotorPin, 255);                                      // Default DC Motor to not spin on StartUp
-    pinMode(DCSignalPin, INPUT);
 
-    // Temperature and Humidity Sensor Setup Information
-    dht.begin();
+    // DC Motor Setup Information
+    pinMode(DCMotorPin1, OUTPUT);
+    pinMode(DCMotorPin2, OUTPUT);
+    pinMode(DCMotorPWM, OUTPUT);
+
 
     // Ultrasonic Sensor Setup Information
-    pinMode(UltraSonicTrig, OUTPUT);                                // Sets the UltraSonicTrig pin as an Output
-    pinMode(UltraSonicEcho, INPUT);                                 // Sets the UltraSonicEcho pin as an Input
+    // Right Setup
+    pinMode(UltraSonicTrigRight, OUTPUT);                               // Sets the UltraSonicTrigRight pin as an Output
+    pinMode(UltraSonicEchoRight, INPUT);                                // Sets the UltraSonicEchoRight pin as an Input
+    pinMode(UltraSonicTrigLeft, OUTPUT);                                // Sets the UltraSonicTrigLeft pin as an Output
+    pinMode(UltraSonicEchoLeft, INPUT);                                 // Sets the UltraSonicEchoLeft pin as an Input
+
 
     // 3-Axis Accelerometer Setup
-    while (!Serial) delay(10);     // will pause Zero, Leonardo, etc until serial console opens
+    while (!Serial) delay(10);                                          // Will pause Zero, Leonardo, etc until serial console opens
     
-    Serial.println("LIS3DH test!");
-    
-    if (! lis.begin(0x18)) {   // change this to 0x19 for alternative i2c address
+    if (! lis.begin(0x18)) {                                            // Change this to 0x19 for alternative I2C address
         Serial.println("Couldnt start");
         while (1) yield();
     }
@@ -561,201 +165,122 @@ void setup() {
       case LIS3DH_DATARATE_LOWPOWER_5KHZ: Serial.println("5 Khz Low Power"); break;
       case LIS3DH_DATARATE_LOWPOWER_1K6HZ: Serial.println("16 Khz Low Power"); break;
     }
-
-    // LED Setup Information
-    // Complete Setup LED
-    pinMode(OnPin, OUTPUT);
-    digitalWrite(OnPin, HIGH);                                      // Turning on LED once Setup is complete
-
-    // Gamepad Connected LED
-    pinMode(ConnectedPin, OUTPUT);                                  // Setting up ConnectedPin state
-
-    // DataLogging LED
-    pinMode(RecordingPin, OUTPUT);                                  // Settung up DataLogging State
-
-    // Set recording status to false
-    Recording = false;
 }
 
 // Arduino loop function. Runs in CPU 1
 void loop() {
-    
-    // This call fetches all the gamepad info from the NINA (ESP32) module.
-    // Just call this function in your main loop.
-    // The gamepads pointer (the ones received in the callbacks) gets updated
-    // automatically.
-    BP32.update();
+    WiFiClient Server = wifiServer.available();                         // Creates a wifi server type to allow transmition of data
+    if (Server) {
+        while (Server.connected()){                                     // Continues around while loop, if TCP server connections are true (at both ends)
+            
+            // Bluepad32
+            BP32.update();                                              // Updating the the controller inputs
 
-    // It is safe to always do this before using the gamepad API.
-    // This guarantees that the gamepad is valid and connected.
-    if (myGamepad && myGamepad->isConnected()) {
-        
-        // Another way to query the buttons, is by calling buttons(), or
-        // miscButtons() which return a bitmask.
-        // Some gamepads also have DPAD, axis and more.
-        char buffer[150];
-        snprintf(buffer, sizeof(buffer) - 1,
-                 "dpad: 0x%02x, buttons: 0x%04x, a:%1d, b:%1d, x:%1d, y:%1d, axis L: %4d, %4d, axis R: %4d, "
-                 "%4d, brake: %4d, throttle: %4d, misc: 0x%02x",
-                 myGamepad->dpad(),        // DPAD
-                 myGamepad->buttons(),     // bitmask of pressed buttons
-                 myGamepad->a(),           // (0 - 1) Boolean value of button A
-                 myGamepad->b(),           // (0 - 1) Boolean value of button B
-                 myGamepad->x(),           // (0 - 1) Boolean value of button X
-                 myGamepad->y(),           // (0 - 1) Boolean value of button Y
-                 myGamepad->axisX(),       // (-511 - 512) left X Axis
-                 myGamepad->axisY(),       // (-511 - 512) left Y axis
-                 myGamepad->axisRX(),      // (-511 - 512) right X axis
-                 myGamepad->axisRY(),      // (-511 - 512) right Y axis
-                 myGamepad->brake(),       // (0 - 1023): brake button
-                 myGamepad->throttle(),    // (0 - 1023): throttle (AKA gas) button
-                 myGamepad->miscButtons()  // bitmak of pressed "misc" buttons
-        );
-        Serial.println(buffer);
+            if (myGamepad && myGamepad->isConnected()) {                // Checks to make sure the controller is still connected
+            
+                // Controller Inputs
+                char buffer[80];                                        // Creates a buffer for the required controller inputs
+                snprintf(buffer, sizeof(buffer) - 1,
+                     "a:%1d, b:%1d, x:%1d, y:%1d, axis L: %4d, %4d",
+                     myGamepad->a(),           // (0 - 1) Boolean value of button A
+                     myGamepad->b(),           // (0 - 1) Boolean value of button B
+                     myGamepad->x(),           // (0 - 1) Boolean value of button X
+                     myGamepad->y(),           // (0 - 1) Boolean value of button Y
+                     myGamepad->axisX(),       // (-511 - 512) left X Axis
+                     myGamepad->axisY()        // (-511 - 512) left Y axis
+                );
 
-        // Get SystemTime from EpochTime
-        SystemTime = epochTime - deltaTime + millis();
+                // Ultrasonic Distance Sensor
+                digitalWrite(UltraSonicTrigRight, LOW);                                     // Clears the UltraSonicTrigRight pin
+                delayMicroseconds(2);                                                       // Holds for 2 micro-seconds
 
-        // Convert Epochtime to GMT
-        time_t SystemTime;                                                   // Converting Epochtime into GMT
-        time(&SystemTime);                                                   // Converting Epochtime into GMT
-        tm *local_time = localtime(&SystemTime);                             // Creating local_time that will allow interigation into specific time variables
+                // Pulse the Right Pin
+                digitalWrite(UltraSonicTrigRight, HIGH);                                    // Sets the UltraSonicTrigRight pin to High
+                delayMicroseconds(10);                                                      // Holds for 10 micro-seconds
+                digitalWrite(UltraSonicTrigRight, LOW);                                     // Sets the UltraSonicTrigRight pin to Low
 
-        // Setting specific time variables
-        Hour = local_time->tm_hour;
-        Min = local_time->tm_min;
-        Sec = local_time->tm_sec;
+                // Duration of Echo Right Pin
+                DurationRight = pulseIn(UltraSonicEchoRight, HIGH);                         // Reads the UltraSonicEchoRight pin and returns the sound wave travel time in microseconds
 
-        // Temperature and Humidity Sensor
-        Humidity = dht.readHumidity();
-        Temperature = dht.readTemperature();
+                digitalWrite(UltraSonicTrigLeft, LOW);                                      // Clears the UltraSonicTrigLeft pin
+                delayMicroseconds(2);                                                       // Holds for 2 micro-seconds
 
-        // Ultrasonic Sensor
-        digitalWrite(UltraSonicTrig, LOW);                                          // Clears the UltraSonicTrig pin
+                // Pulse the Left Pin
+                digitalWrite(UltraSonicTrigLeft, HIGH);                                     // Sets the UltraSonicTrigLeft pin to High
+                delayMicroseconds(10);                                                      // Holds for 10 microseconds
+                digitalWrite(UltraSonicTrigLeft, LOW);                                      // Sets the UltraSonicTrigLeft pin to Low
 
-        digitalWrite(UltraSonicTrig, HIGH);                                         // Sets the UltraSonicTrig pin to High
-        delayMicroseconds(4);                                                       // Holds for 4 microseconds
-        digitalWrite(UltraSonicTrig, LOW);                                          // Set's UltraSonicTrig pin back to LOW
+                // Duration of Echo Left Pin
+                DurationLeft = pulseIn(UltraSonicEchoLeft, HIGH);                           // Reads the UltraSonicEchoLeft pin and returns the sound wave travel time in microseconds
 
-        duration = pulseIn(UltraSonicEcho, HIGH);                                   // Reads the UltraSonicEcho pin and returns the sound wave travel time in microseconds
-        distanceCM = duration * SOUND_SPEED/2;                                      // Calculates the distance in CM
-      
-        // 3-axis accelerometer (normalised to m/s^2)
-        sensors_event_t Acceleration;
-        lis.getEvent(&Acceleration);
-        
-        // Servo Motor Steering
-        AxisX = myGamepad->axisX();
-        SteeringPosition = ((AxisX+512)*maxSteeringAngle/1024);
-        SteeringServo.write(SteeringPosition);
+                // Calculate Ultrasonic Distance Sensor Distances
+                DistanceCMRight = DurationRight * SOUND_SPEED/2;                            // Calculates the right distance in CM
+                DistanceCMLeft = DurationLeft * SOUND_SPEED/2;                              // Calculates the left distance in CM
 
-        // DC Motor
-        // Reading DC Motor Encoder
-        DCMotorPWM = pulseIn(DCSignalPin, HIGH, 9000);
-        if (DCMotorPWM == 0){
-            DCMotorRev = 0;
-        }
-        else{
-            DCMotorRev = (111111/(DCMotorPWM));
-        }
 
-        // Set DC motor direction
-        if(myGamepad->axisY() < 0){
-            digitalWrite(DCDirectionPin, HIGH);
-        }
-        else if(myGamepad->axisY() > 0){
-            digitalWrite(DCDirectionPin, LOW);
-        }
+                // 3-Axis Accelerometer (normalised to m/s^2)
+                sensors_event_t Acceleration;                                               // Creates a sensor event called acceleration
+                lis.getEvent(&Acceleration);                                                // Reads for the values from the sensor for the event
 
-        // DC motor control with PID controller
-        double pidMin = 0.0;
-        double pidMax = 0.0;
 
-        //sp = 130.0;
+                // Servo Motor Steering
+                AxisX = myGamepad->axisX();                                                 // Convertes the input from controller to a double known as AxisX
+                SteeringPosition = ((AxisX+512)*CarMaxSteeringAngle/1024);                  // Calculates the steering position for given controller input
+                SteeringServo.write(SteeringPosition);                                      // Writes steering position to pin
+                SteeringAngle = SteeringPosition-(CarMaxSteeringAngle/2);                   // Updates steering angle variable, with the middle being 0 degs
 
-        AxisY = myGamepad->axisY();
-        sp = (abs(AxisY)/512)*159;
+                // DC Motor
+                // DC Motor Direction
+                AxisY = myGamepad->axisY();                                                 // Converts the input from controller to a double known as AxisY
+                
+                // Ensures the motor is spinning in the correct direction
+                if (AxisY <= 0){
+                    digitalWrite(DCMotorPin1, LOW);                                         
+                    digitalWrite(DCMotorPin2, HIGH);
+                    DCMotorDirection = true;
+                }
+                else if (AxisY > 0){
+                    digitalWrite(DCMotorPin1, HIGH);
+                    digitalWrite(DCMotorPin2, LOW);
+                    DCMotorDirection = false;
+                }
 
-        if((millis() - UpdatePID >= timerDelay)){
-            pidMin = PID_output_limit_min((double) DCMotorRev, sp);
-            pidMax = PID_output_limit_max((double) DCMotorRev, sp);
-            ProcessInput = PID((double) DCMotorRev, sp, pidMin, pidMax);
-            analogWrite(DCMotorPin, (int) ProcessInput);                    // Writting output value from PID function to DCMotorPin (speed) - writing in PWM
+                // DC Motor Power
+                DCMotorSpeed = ((abs(AxisY))/512.0)*255;                                    // Calcualtes the DC Motor Speed for the given controller input
+                analogWrite(DCMotorPWM, (int) DCMotorSpeed);                                // Writes the DC Motor Speed to the DC Motor PWM pin
 
-            Serial.println(DCMotorRev);
-            Serial.println(ProcessInput);
-            Serial.println(sp);
+                // Data Logging (Continuous)
+                if ((millis() - lastTimeDelay) > timerDelay){
+                    // Order of Variable Prints
+                    // Time, Left Joystick:X-Axis, Left Joystick:Y-Axis, Steering Angle, Forwards(1) or Backwards(0), InputDCMotorPower, Ultrasonic Distance Right (cm), Ultrasonic Distance Left (cm), X-axis Acceleration (m/s^2), Y-axis Acceleration (m/s^2), Z-axis Acceleration (m/s^2)
 
-            UpdatePID = millis();                                           // Update the refresh gap
-        }
+                    Server.print(AxisX);
+                    Server.print(",");
+                    Server.print(AxisY);
+                    Server.print(",");
+                    Server.print(SteeringAngle);
+                    Server.print(",");
+                    Server.print(DCMotorDirection);
+                    Server.print(",");
+                    Server.print(DCMotorSpeed);
+                    Server.print(",");
+                    Server.print(DistanceCMRight);
+                    Server.print(",");
+                    Server.print(DistanceCMLeft);
+                    Server.print(",");
+                    Server.print(Acceleration.acceleration.x);
+                    Server.print(",");
+                    Server.print(Acceleration.acceleration.y);
+                    Server.print(",");
+                    Server.print(Acceleration.acceleration.z);
+                    Server.print("\n");
 
-        // Data logging commands
-        // Set Recording to true when X is pressed
-        if(myGamepad->x() == 1){
-            Recording = true;
+                    lastTimeDelay = millis();
 
-            LocalFolderPath = FolderPath + "/" + Hour;
-            createDir(SD, LocalFolderPath.c_str());
-
-            LocalFolderPath = LocalFolderPath + "/" + Min;
-            createDir(SD, LocalFolderPath.c_str());
-
-            FilePath = LocalFolderPath + "/" + FileName + ".csv";
-        
-            DataLogFile = SD.open(FilePath.c_str(), FILE_WRITE);
-
-            DataLogFile.println("Time(Hour),Time(Min),Time(Sec),Temperature(C),Humidity(%),Left Joystick:X-Axis,Left Joystick:Y-Axis,Steering Angle,Forwards(1) or Backwards(0),InputDCMotorPower,DC Motor Speed (Encoder Value) - Rev/min,Distance (cm),X-axis Acceleration (m/s^2),Y-axis Acceleration (m/s^2),Z-axis Acceleration (m/s^2)");
-        }
-
-        // Set Recording to flase when B is pressed
-        if(myGamepad->b() == 1){
-            Recording = false;
-
-            DataLogFile.close();
-        }
-
-        if(Recording == true){
-            digitalWrite(RecordingPin, HIGH);
-
-            if ((millis() - lastTimeDelay) > timerDelay) {
-
-                DataLogFile.print(Hour);
-                DataLogFile.print(",");
-                DataLogFile.print(Min);
-                DataLogFile.print(",");
-                DataLogFile.print(Sec);
-                DataLogFile.print(",");
-                DataLogFile.print(Temperature);
-                DataLogFile.print(",");
-                DataLogFile.print(Humidity);
-                DataLogFile.print(",");
-                DataLogFile.print(AxisX);
-                DataLogFile.print(",");
-                DataLogFile.print(AxisY);
-                DataLogFile.print(",");
-                DataLogFile.print(SteeringPosition);
-                DataLogFile.print(",");
-                DataLogFile.print(digitalRead(DCDirectionPin));
-                DataLogFile.print(",");
-                DataLogFile.print(RotVelocity);
-                DataLogFile.print(",");
-                DataLogFile.print(DCMotorRev);
-                DataLogFile.print(",");
-                DataLogFile.print(distanceCM);
-                DataLogFile.print(",");
-                DataLogFile.print(Acceleration.acceleration.x);
-                DataLogFile.print(",");
-                DataLogFile.print(Acceleration.acceleration.y);
-                DataLogFile.print(",");
-                DataLogFile.print(Acceleration.acceleration.z);
-                DataLogFile.print("\n");
-
-                lastTimeDelay = millis();
+                }
             }
         }
-
-        if(Recording == false){
-            digitalWrite(RecordingPin, LOW);
-        }
-    }
+        Server.stop();
+        Serial.println("Client Disconnected");
+    }  
 }
