@@ -1,4 +1,4 @@
-# Remote-Control-Car-and-Trailer
+# Remote-Control-Trailer
 
 Code for a scale model of a remote control car and trailer; developed for a University project.
 
@@ -15,7 +15,7 @@ Any bluetooth controller can be connected to the ESP32; this was implemented usi
 
 2. Launch the "ESP-IDF v4.4 CMD" (type that in the Windows search box)
 
-3. CD to the "Remote-Control-Car-and-Trailer" directory
+3. CD to the "Remote-Control-Trailer" directory
 
 4. Compile the code:
 
