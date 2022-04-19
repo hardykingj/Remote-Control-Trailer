@@ -23,7 +23,8 @@ float LinearTransducerVoltage;
 float LinearDistance;
 
 // Accelerometer Variables (using I2C)
-Adafruit_LIS3DH lis = Adafruit_LIS3DH();
+Adafruit_LIS3DH AccFront = Adafruit_LIS3DH();
+Adafruit_LIS3DH AccRear = Adafruit_LIS3DH();
 
 // Timer Varaibles
 unsigned long lastTimeDelay = 0;
@@ -50,6 +51,7 @@ void initWiFi() {
 void setup() {
     setCpuFrequencyMhz(240);                                        // Overclocking the frequency of the ESP32 core
 
+
     // Wifi
     // Connecting to WiFi
     Serial.begin(115200);                                           // Setting the serial baud rate
@@ -68,41 +70,42 @@ void setup() {
     // Initiate the TCP server
     wifiServer.begin();
 
+
     // DC Motor Setup Information
     pinMode(DCMotorPin1, OUTPUT);
     pinMode(DCMotorPin2, OUTPUT);
     pinMode(DCMotorPWM, OUTPUT);
 
+
     // Linear Transducer Setup Information
     pinMode(LinearTransducerPin, INPUT);
-
+    
+    
     // 3-Axis Accelerometer Setup
+    // Front Accelerometer Setup
     while (!Serial) delay(10);                                          // Will pause Zero, Leonardo, etc until serial console opens
     
-    if (! lis.begin(0x18)) {                                            // Change this to 0x19 for alternative I2C address
+    if (! AccFront.begin(0x18)) {                                            // Looks at particular I2C address
         Serial.println("Couldnt start");
         while (1) yield();
     }
     Serial.println("LIS3DH found!");
     
-    Serial.print("Range = "); Serial.print(2 << lis.getRange());
-    Serial.println("G");
+    AccFront.setDataRate(LIS3DH_DATARATE_100_HZ);                       // Set's datalog rate to 100Hz
+    AccFront.setRange(LIS3DH_RANGE_4_G);                                // Set's acceleration range to 4G
+
+
+    // Rear Accelerometer Setup
+    while (!Serial) delay(10);                                          // Will pause Zero, Leonardo, etc until serial console opens
     
-    // lis.setDataRate(LIS3DH_DATARATE_50_HZ);
-    Serial.print("Data rate set to: ");
-    switch (lis.getDataRate()) {
-      case LIS3DH_DATARATE_1_HZ: Serial.println("1 Hz"); break;
-      case LIS3DH_DATARATE_10_HZ: Serial.println("10 Hz"); break;
-      case LIS3DH_DATARATE_25_HZ: Serial.println("25 Hz"); break;
-      case LIS3DH_DATARATE_50_HZ: Serial.println("50 Hz"); break;
-      case LIS3DH_DATARATE_100_HZ: Serial.println("100 Hz"); break;
-      case LIS3DH_DATARATE_200_HZ: Serial.println("200 Hz"); break;
-      case LIS3DH_DATARATE_400_HZ: Serial.println("400 Hz"); break;
-      
-      case LIS3DH_DATARATE_POWERDOWN: Serial.println("Powered Down"); break;
-      case LIS3DH_DATARATE_LOWPOWER_5KHZ: Serial.println("5 Khz Low Power"); break;
-      case LIS3DH_DATARATE_LOWPOWER_1K6HZ: Serial.println("16 Khz Low Power"); break;
+    if (! AccRear.begin(0x19)) {                                        // Looks at particular I2C address
+        Serial.println("Couldnt start");
+        while (1) yield();
     }
+    Serial.println("LIS3DH rear found!");
+    
+    AccRear.setDataRate(LIS3DH_DATARATE_100_HZ);                        // Set's datalog rate to 100Hz
+    AccRear.setRange(LIS3DH_RANGE_4_G);                                 // Set's acceleration range to 4G
 }
 
 // Arduino loop function. Runs in CPU 1
@@ -111,13 +114,18 @@ void loop() {
     if (Server) {
         while (Server.connected()){                                                     // Continues around while loop, if TCP server connections are true (at both ends)
             
+
             // 3-Axis Accelerometer (normalised to m/s^2)
-            sensors_event_t Acceleration;                                               // Creates a sensor event called acceleration
-            lis.getEvent(&Acceleration);                                                // Reads for the values from the sensor for the event
+            sensors_event_t FrontAcceleration;                                          // Creates a sensor event called Front Acceleration
+            sensors_event_t RearAcceleration;                                           // Creates a sensor event called Rear Acceleration
+            AccFront.getEvent(&FrontAcceleration);                                      // Reads for the values from the sensor for Front Acceleration
+            AccRear.getEvent(&RearAcceleration);                                        // Reads for the values from the sensors for Rear Acceleration
+
 
             // Linear Transduer
             LinearTransducerVoltage = analogRead(LinearTransducerPin) * VoltsPerBits;   // Reading the analog output from the ADC and converting to voltage range (0v - 5v)
             LinearDistance = (LinearTransducerVoltage-2.5)/0.2;                         // Converting linear transducer voltage to linear distance from set point (exactly in middle) - total travel = 25mm
+
 
             // DC Motor
             // DC Motor Direction
@@ -140,7 +148,7 @@ void loop() {
             // Data Logging (Continuous)
             if ((millis() - lastTimeDelay) > timerDelay){
                 // Order of Variable Prints
-                // Time, Linear Transducer Distance (mm), Forwards(1) or Backwards(0), InputDCMotorPower, X-axis Acceleration (m/s^2), Y-axis Acceleration (m/s^2), Z-axis Acceleration (m/s^2)
+                // Time, Linear Transducer Distance (mm), Forwards(1) or Backwards(0), InputDCMotorPower, Front X-axis Acceleration (m/s^2), Front Y-axis Acceleration (m/s^2), Front Z-axis Acceleration (m/s^2), Rear X-axis Acceleration (m/s^2), Rear Y-axis Acceleration (m/s^2), Rear Z-axis Acceleration (m/s^2)
 
                 Server.print(LinearDistance);
                 Server.print(",");
@@ -148,11 +156,17 @@ void loop() {
                 Server.print(",");
                 Server.print(DCMotorSpeed);
                 Server.print(",");
-                Server.print(Acceleration.acceleration.x);
+                Server.print(FrontAcceleration.acceleration.x);
                 Server.print(",");
-                Server.print(Acceleration.acceleration.y);
+                Server.print(FrontAcceleration.acceleration.y);
                 Server.print(",");
-                Server.print(Acceleration.acceleration.z);
+                Server.print(FrontAcceleration.acceleration.z);
+                Server.print(",");
+                Server.print(RearAcceleration.acceleration.x);
+                Server.print(",");
+                Server.print(RearAcceleration.acceleration.y);
+                Server.print(",");
+                Server.print(RearAcceleration.acceleration.z);
                 Server.print("\n");
 
                 lastTimeDelay = millis();
