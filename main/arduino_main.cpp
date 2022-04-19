@@ -30,6 +30,26 @@ Adafruit_LIS3DH AccRear = Adafruit_LIS3DH();
 unsigned long lastTimeDelay = 0;
 unsigned long timerDelay = 1;                                       // Target 100Hz Sampling frequency
 
+// PID Controller Variables
+double kp = 100;
+double ki = 100;
+double kd = 1;
+unsigned long UpdatePID = 0.0;                      // Time delay to update PID
+const double windupGuardMin = 0;                    // Set to output limit
+const double windupGuardMax = 255;                  // Set to output limit
+double ProcessInput;
+static double sp = 0.0;
+static double last_value = 0.0;
+double error;
+double pTerm;
+static double iTerm;
+double dTerm;
+double PID_output;
+double pidOutput = 0.0;
+double PID_return;
+double pidMin = 0.0;
+double pidMax = 0.0;
+
 // Define the Network Credentials (Using TP-link range extender)
 const char* ssid     = "TPD_Test_Wifi";                             // Name of the Wifi Network
 const char* password = "";                                          // Password of the Wifi Network (no password set)
@@ -45,6 +65,68 @@ void initWiFi() {
     delay(1000);
   }
   Serial.println(WiFi.localIP());
+}
+
+// Creates a funciton for the PID controller
+double PID_output_limit_max( double pv, double sp){
+    error = 12.5;                                                // Obtaining the error value (difference between taget position and set position)
+    pTerm = kp * error;                                             // Obtaining the proportional term
+
+    iTerm = 0;
+    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
+//    iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);     //TODO uncomment
+
+    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
+    last_value = pv;
+
+    pidOutput = pTerm + iTerm + dTerm;
+
+    return pidOutput;
+}
+
+double PID_output_limit_min( double pv, double sp){
+    error = -12.5;                                                // Obtaining the error value (difference between taget position and set position)
+    pTerm = kp * error;                                             // Obtaining the proportional term
+
+    iTerm = 0;
+    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
+    // iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);    //TODO uncomment
+
+    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
+    last_value = pv;
+
+    pidOutput = pTerm + iTerm + dTerm;
+
+    return pidOutput;
+}
+
+// Creates a funciton for the PID controller
+double PID(double pv, double sp, double pidMin, double pidMax){
+    error = sp - pv;                                                // Obtaining the error value (difference between taget position and set position)
+    pTerm = kp * error;                                             // Obtaining the proportional term
+
+    iTerm = 0;
+    iTerm += ki * error;                                            // Ki unit time (ki = Ki*dT)
+    // iTerm = constrain(windupGuardMin, iTerm, windupGuardMax);    //TODO uncomment
+
+    dTerm = kd * (pv - last_value);                                 // Kd unit time (kd = Kd/dT)
+    last_value = pv;
+
+    PID_output = pTerm + iTerm + dTerm;
+
+    if (PID_output >= 0) {
+        // motor direction forwards
+        // PID_output = constrain(0, PID_output, 255);              //TODO uncomment
+        PID_return = (((PID_output)/pidMax)*255);
+        // PID_return = constrain(0, PID_return, 255);              //TODO uncomment
+    }
+    else {
+        // PID_output = constrain(PID_output_min, PID_output, 0); //TODO uncomment
+        // motor direction backwards
+        PID_return =  abs(((PID_output/abs(pidMin))*255));
+    }
+
+    return PID_return;                                   // Returing sum of terms
 }
 
 // Arduino setup function. Runs in CPU 1
@@ -126,23 +208,25 @@ void loop() {
             LinearTransducerVoltage = analogRead(LinearTransducerPin) * VoltsPerBits;   // Reading the analog output from the ADC and converting to voltage range (0v - 5v)
             LinearDistance = (LinearTransducerVoltage-2.5)/0.2;                         // Converting linear transducer voltage to linear distance from set point (exactly in middle) - total travel = 25mm
 
-
             // DC Motor
-            // DC Motor Direction
-            if (LinearDistance >= 0){
-                digitalWrite(DCMotorPin1, LOW);                                         
-                digitalWrite(DCMotorPin2, HIGH);
-                DCMotorDirection = true;
-            }
-            else if (LinearDistance > 0){
-                digitalWrite(DCMotorPin1, HIGH);
-                digitalWrite(DCMotorPin2, LOW);
-                DCMotorDirection = false;
-            }
+            // DC Motor Direciton
+            digitalWrite(DCMotorPin1, LOW);                                         
+            digitalWrite(DCMotorPin2, HIGH);
 
-            // DC Motor Power
-            DCMotorSpeed = ((abs(LinearDistance))/12.5)*255;                             // Calcualtes the DC Motor Speed for the given linear transducer distance
+            // DC Motor PID Code
+            pidMin = PID_output_limit_min((double) LinearDistance, sp);
+            pidMax = PID_output_limit_max((double) LinearDistance, sp);
+            DCMotorSpeed = abs(PID((double) LinearDistance, sp, pidMin, pidMax));
+
             analogWrite(DCMotorPWM, (int) DCMotorSpeed);                                 // Writes the DC Motor Speed to the DC Motor PWM pin
+
+            // Data Logging for PID Configuration
+            Serial.print(LinearDistance);
+            Serial.print(",");
+            Serial.print(DCMotorDirection);
+            Serial.print(",");
+            Serial.print(DCMotorSpeed);
+            Serial.println(" ");
 
 
             // Data Logging (Continuous)
